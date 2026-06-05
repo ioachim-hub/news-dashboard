@@ -1,0 +1,15 @@
+news.lihor.ro {
+	# Private reading/news dashboard. Keep authenticated before public exposure.
+	basic_auth * {
+		ioachim $2a$14$UGeTXqBpaCkT6orMq3/N5epoiTuruDuef9wSKocur71ikilGufq0C
+	}
+
+	reverse_proxy 10.107.247.155:8080
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+	}
+}

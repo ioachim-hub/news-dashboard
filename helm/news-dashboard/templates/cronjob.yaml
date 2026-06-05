@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "news-dashboard.fullname" . }}-ingest
+spec:
+  schedule: "17 */6 * * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            fsGroup: 1000
+          containers:
+            - name: ingest
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+              command: ["news-dashboard", "ingest"]
+              env:
+                - name: NEWS_DASHBOARD_DB
+                  value: {{ .Values.app.databasePath | quote }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+{{- if .Values.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "news-dashboard.fullname" . }}
+{{- else }}
+              emptyDir: {}
+{{- end }}

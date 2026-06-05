@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+frontend/dist/
+tsconfig.tsbuildinfo
+.env
+.DS_Store
+data/*.db
+data/*.db-*

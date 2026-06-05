@@ -1,0 +1,34 @@
+[project]
+name = "news-dashboard"
+version = "0.1.0"
+description = "Private news inbox, reading tracker, summaries, and source dashboard"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "feedparser>=6.0.11",
+  "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "httpx>=0.27.0",
+]
+
+[project.scripts]
+news-dashboard = "news_dashboard.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/news_dashboard"]
+
+[tool.hatch.build.targets.editable]
+packages = ["backend/news_dashboard"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]

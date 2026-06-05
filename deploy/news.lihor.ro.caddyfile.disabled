@@ -1,0 +1,14 @@
+# Staged only. Do not import/reload until news.lihor.ro DNS resolves.
+# Add basic_auth before public exposure.
+
+news.lihor.ro {
+  encode zstd gzip
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options DENY
+  }
+
+  reverse_proxy 127.0.0.1:8080
+}

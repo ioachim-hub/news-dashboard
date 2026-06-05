@@ -1,0 +1,33 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/ioachim-hub/news-dashboard
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClassName: ""
+
+app:
+  databasePath: /data/news-dashboard.db
+
+ingress:
+  enabled: false
+  className: ""
+  host: news.lihor.ro
+  annotations: {}
+  tls: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

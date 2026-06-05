@@ -1,0 +1,14 @@
+services:
+  news-dashboard:
+    build: .
+    image: news-dashboard:local
+    ports:
+      - "8080:8080"
+    environment:
+      NEWS_DASHBOARD_DB: /data/news-dashboard.db
+    volumes:
+      - news-dashboard-data:/data
+    restart: unless-stopped
+
+volumes:
+  news-dashboard-data:

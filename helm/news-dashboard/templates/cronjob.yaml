@@ -23,8 +23,30 @@ spec:
                 runAsGroup: 1000
               command: ["news-dashboard", "ingest"]
               env:
+{{- if .Values.postgresql.enabled }}
+                - name: POSTGRES_HOST
+                  value: {{ printf "%s-postgres" (include "news-dashboard.fullname" .) | quote }}
+                - name: POSTGRES_PORT
+                  value: {{ .Values.postgresql.port | quote }}
+                - name: POSTGRES_DB
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "news-dashboard.fullname" . }}-postgres
+                      key: POSTGRES_DB
+                - name: POSTGRES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "news-dashboard.fullname" . }}-postgres
+                      key: POSTGRES_USER
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "news-dashboard.fullname" . }}-postgres
+                      key: POSTGRES_PASSWORD
+{{- else }}
                 - name: NEWS_DASHBOARD_DB
                   value: {{ .Values.app.databasePath | quote }}
+{{- end }}
               volumeMounts:
                 - name: data
                   mountPath: /data

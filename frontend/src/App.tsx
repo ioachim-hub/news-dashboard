@@ -81,9 +81,10 @@ function App() {
   const [status, setStatus] = useState<ArticleStatus | 'all'>('new')
   const [category, setCategory] = useState('all')
   const [loading, setLoading] = useState(true)
+  const [ingesting, setIngesting] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  async function load() {
+  async function load(options: { preserveMessage?: boolean } = {}) {
     setLoading(true)
     try {
       const [nextArticles, nextSources, nextSummary] = await Promise.all([
@@ -94,7 +95,7 @@ function App() {
       setArticles(nextArticles)
       setSources(nextSources)
       setSummary(nextSummary)
-      setMessage(null)
+      if (!options.preserveMessage) setMessage(null)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to load dashboard')
     } finally {
@@ -107,10 +108,18 @@ function App() {
   }, [status, category])
 
   async function runIngest() {
-    setMessage('Ingesting feeds…')
-    const result = await ingestNow()
-    setMessage(`Ingest complete: ${result.inserted} new item(s)`)
-    await load()
+    setIngesting(true)
+    setMessage('Ingesting feeds… this can take a minute because every source is checked.')
+    try {
+      const result = await ingestNow()
+      const failed = Object.values(result.results).filter((value) => value < 0).length
+      setMessage(`Ingest complete: ${result.inserted} new item(s). ${failed ? `${failed} source(s) failed.` : 'No source failures.'}`)
+      await load({ preserveMessage: true })
+    } catch (error) {
+      setMessage(error instanceof Error ? `Ingest failed: ${error.message}` : 'Ingest failed')
+    } finally {
+      setIngesting(false)
+    }
   }
 
   async function changeStatus(id: number, nextStatus: ArticleStatus) {
@@ -126,7 +135,7 @@ function App() {
           <h1>Ioachim's News Inbox</h1>
           <p className="lead">Python, AI/LLM, agents, infrastructure, trending stories, and repositories — collected by Clau for reading history and later summaries.</p>
         </div>
-        <button className="primary" onClick={runIngest}>Fetch now</button>
+        <button className="primary" onClick={runIngest} disabled={ingesting}>{ingesting ? 'Fetching…' : 'Fetch now'}</button>
       </header>
 
       <section className="stats">

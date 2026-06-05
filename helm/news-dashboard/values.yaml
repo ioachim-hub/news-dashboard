@@ -9,16 +9,30 @@ service:
   type: ClusterIP
   port: 8080
 
+# SQLite fallback only. Production/local-k8s uses PostgreSQL below.
 persistence:
   enabled: true
   size: 1Gi
   storageClassName: ""
-  # For the local single-node cluster, set this to a host path to avoid relying
-  # on a dynamic provisioner. Example: /home/ioachim-minipc/news-dashboard-data
   hostPath: ""
 
 app:
   databasePath: /data/news-dashboard.db
+
+postgresql:
+  enabled: true
+  image: postgres:16-alpine
+  database: news_dashboard
+  username: news_dashboard
+  # Internal cluster password. Override in real environments.
+  password: news-dashboard-local-password
+  port: 5432
+  persistence:
+    enabled: true
+    size: 2Gi
+    storageClassName: ""
+    # Local single-node durable storage. This survives pod restarts/upgrades.
+    hostPath: /home/ioachim-minipc/news-dashboard-postgres-data
 
 ingress:
   enabled: false

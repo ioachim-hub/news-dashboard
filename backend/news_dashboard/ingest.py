@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import feedparser
 
-from .db import connect, init_db, row_to_dict
+from .db import connect, init_db, insert_article_sql, row_to_dict
 from .sources import DEFAULT_SOURCES, SourceDefinition
 
 TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref", "fbclid", "gclid"}
@@ -109,12 +109,7 @@ def ingest_source(source: SourceDefinition, db_path: Path | None = None) -> int:
             description = entry.get("summary") or entry.get("description") or ""
             summary, reason, score, tags = make_summary(title, description, source)
             cursor = conn.execute(
-                """
-                INSERT OR IGNORE INTO articles(
-                  url, canonical_url, title, source_slug, source_name, category, kind,
-                  published_at, summary, reason, importance_score, tags
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                insert_article_sql(),
                 (url, url, title, source.slug, source.name, source.category, source.kind, parse_date(entry), summary, reason, score, tags),
             )
             inserted += cursor.rowcount

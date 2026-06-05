@@ -39,16 +39,28 @@ Open `http://localhost:5173`.
 ## Container
 
 ```bash
-docker build -t news-dashboard:local .
-docker run --rm -p 8080:8080 -v news-dashboard-data:/data news-dashboard:local
+docker compose up --build
 ```
 
 Open `http://localhost:8080`.
 
+## Durable database
+
+The Kubernetes deployment uses PostgreSQL by default, backed by durable host storage on the local single-node cluster:
+
+```text
+/home/ioachim-minipc/news-dashboard-postgres-data
+```
+
+SQLite remains only a local/test fallback. Existing SQLite data can be migrated with:
+
+```bash
+news-dashboard-migrate /data/news-dashboard.db
+```
+
 ## Deployment notes
 
 - The app should be private/auth-protected when exposed publicly.
-- `news.lihor.ro` DNS is intentionally not configured here; Ioachim will handle DNS.
-- Do not enable a Caddy/Ingress host until DNS resolves, otherwise ACME will fail with NXDOMAIN.
+- `news.lihor.ro` is served by host-level Caddy with Basic Auth.
 - GitHub Actions publishes `ghcr.io/ioachim-hub/news-dashboard`.
 - For the local Kubernetes cluster, if GHCR pull auth is unavailable, build and push to `localhost:5000/news-dashboard:<tag>` and override Helm image values.

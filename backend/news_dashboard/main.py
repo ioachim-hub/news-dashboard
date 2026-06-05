@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .db import DB_PATH, connect, init_db, row_to_dict
+from .db import connect, describe_database, init_db, row_to_dict
 from .ingest import ingest_all, list_articles, set_article_status, sync_sources
 
 app = FastAPI(title="News Dashboard", version="0.1.0")
@@ -31,7 +31,7 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict:
     init_db()
-    return {"status": "ok", "database": str(DB_PATH)}
+    return {"status": "ok", "database": describe_database()}
 
 
 @app.post("/api/ingest")

@@ -13,6 +13,9 @@ persistence:
   enabled: true
   size: 1Gi
   storageClassName: ""
+  # For the local single-node cluster, set this to a host path to avoid relying
+  # on a dynamic provisioner. Example: /home/ioachim-minipc/news-dashboard-data
+  hostPath: ""
 
 app:
   databasePath: /data/news-dashboard.db

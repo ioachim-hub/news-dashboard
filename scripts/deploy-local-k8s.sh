@@ -10,5 +10,6 @@ helm upgrade --install news-dashboard ./helm/news-dashboard \
   --namespace news-dashboard --create-namespace \
   --set image.repository=localhost:5000/news-dashboard \
   --set image.tag="${TAG}" \
+  --set persistence.hostPath=/home/ioachim-minipc/news-dashboard-data \
   --set ingress.enabled=false
 kubectl -n news-dashboard rollout status deploy/news-dashboard-news-dashboard

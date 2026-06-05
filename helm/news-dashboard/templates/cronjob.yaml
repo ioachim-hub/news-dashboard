@@ -30,7 +30,11 @@ spec:
                   mountPath: /data
           volumes:
             - name: data
-{{- if .Values.persistence.enabled }}
+{{- if .Values.persistence.hostPath }}
+              hostPath:
+                path: {{ .Values.persistence.hostPath | quote }}
+                type: DirectoryOrCreate
+{{- else if .Values.persistence.enabled }}
               persistentVolumeClaim:
                 claimName: {{ include "news-dashboard.fullname" . }}
 {{- else }}

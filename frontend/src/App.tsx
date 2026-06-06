@@ -383,45 +383,6 @@ function AskPanel({ result, loading }: AskPanelProps) {
 }
 
 
-// ===== AskPanel =====
-
-interface AskPanelProps {
-  result: AskResponse | null
-  loading: boolean
-}
-
-function AskPanel({ result, loading }: AskPanelProps) {
-  if (loading) {
-    return (
-      <div className="ask-panel">
-        <div className="ask-loading">
-          <span className="skeleton sk-line" style={{ width: '80%' }} />
-          <span className="skeleton sk-line" style={{ width: '60%' }} />
-        </div>
-      </div>
-    )
-  }
-  if (!result) return null
-  return (
-    <div className="ask-panel">
-      <p className="ask-answer">{result.answer}</p>
-      {result.sources.length > 0 && (
-        <div className="ask-sources">
-          <p className="ask-sources-label">Sources</p>
-          <ol className="ask-sources-list">
-            {result.sources.map((s, i) => (
-              <li key={s.id}>
-                <span className="ask-source-num">[{i + 1}]</span>{' '}
-                <a href={s.url} target="_blank" rel="noreferrer">{s.title}</a>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ===== App =====
 
 /** #28 — Sources panel: bottom sheet on mobile, sidebar on desktop */

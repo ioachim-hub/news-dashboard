@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import feedparser
 
-from .db import connect, init_db, insert_article_sql, row_to_dict, search_articles_sql
+from .db import connect, init_db, insert_article_sql, insert_duplicate_article_sql, row_to_dict, search_articles_sql
 from .sources import DEFAULT_SOURCES, SourceDefinition
 
 try:
@@ -262,11 +262,7 @@ def ingest_source(source: SourceDefinition, db_path: Path | None = None) -> int:
                 if canonical_id is not None:
                     # Insert as archived duplicate pointing to canonical
                     conn.execute(
-                        """INSERT OR IGNORE INTO articles(
-                             url, canonical_url, title, source_slug, source_name, category, kind,
-                             published_at, summary, reason, importance_score, tags,
-                             status, canonical_id
-                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'archived', ?)""",
+                        insert_duplicate_article_sql(),
                         (url, url, title, source.slug, source.name, source.category, source.kind,
                          entry.get("date"), summary, reason, score, tags, canonical_id),
                     )

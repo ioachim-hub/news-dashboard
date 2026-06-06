@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from news_dashboard.db import describe_database, init_db
+from news_dashboard.db import describe_database, init_db, insert_duplicate_article_sql
 from news_dashboard.ingest import ingest_all, list_articles
 
 
@@ -22,3 +22,12 @@ def test_postgres_url_is_reported_without_password() -> None:
     dsn = "postgresql://news_dashboard:secret-password@postgres:5432/news_dashboard"
 
     assert describe_database(database_url=dsn) == "postgresql://news_dashboard:***@postgres:5432/news_dashboard"
+
+
+def test_duplicate_article_insert_uses_postgres_conflict_syntax(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://news_dashboard:secret@postgres:5432/news_dashboard")
+
+    sql = insert_duplicate_article_sql()
+
+    assert "ON CONFLICT (url) DO NOTHING" in sql
+    assert "INSERT OR IGNORE" not in sql

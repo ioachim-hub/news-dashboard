@@ -892,3 +892,220 @@ kbd {
   .bulk-bar { bottom: 12px; padding: 8px 12px; gap: 6px; }
   .bulk-btn { padding: 5px 10px; font-size: 11px; }
 }
+
+/* ===== ISSUE #18: LOAD MORE BUTTON ===== */
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 8px;
+}
+.load-more-btn {
+  padding: 10px 32px;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
+}
+.load-more-btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--accent); }
+.load-more-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ===== ISSUE #19: ALSO FROM (DUPLICATE SOURCES) ===== */
+.card-also-from {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* ===== ISSUE #20: SOURCE ENABLE TOGGLE ===== */
+.source-toggle {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.source-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.source-toggle-track {
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--border);
+  position: relative;
+  transition: background var(--t) var(--ease);
+}
+.source-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--t) var(--ease);
+}
+.source-toggle input:checked + .source-toggle-track {
+  background: var(--accent);
+}
+.source-toggle input:checked + .source-toggle-track::after {
+  transform: translateX(14px);
+}
+.source-item--disabled {
+  opacity: 0.55;
+}
+.source-item--disabled a {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+}
+
+/* ===== AI ASK MODE (issue #23) ===== */
+
+.search-mode-toggle {
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.search-mode-btn {
+  background: none;
+  border: none;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--t) var(--ease), color var(--t) var(--ease);
+}
+
+.search-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.search-mode-btn:hover:not(.active) {
+  background: var(--accent-pale);
+  color: var(--accent);
+}
+
+.ask-form {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 6px;
+}
+
+.ask-form input[type="text"] {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-0);
+  padding: 4px 0;
+}
+
+.ask-form input[type="text"]::placeholder {
+  color: var(--text-3);
+}
+
+.ask-submit-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--t) var(--ease);
+}
+
+.ask-submit-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ask-submit-btn:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+/* Ask result panel */
+
+.ask-panel {
+  margin: 0 auto;
+  max-width: 860px;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+
+.ask-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask-answer {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-0);
+  margin: 0 0 16px;
+  white-space: pre-wrap;
+}
+
+.ask-sources {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ask-sources-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 8px;
+}
+
+.ask-sources-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ask-sources-list li {
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.ask-source-num {
+  color: var(--text-3);
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-sources-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.ask-sources-list a:hover {
+  text-decoration: underline;
+}

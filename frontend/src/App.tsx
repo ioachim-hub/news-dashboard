@@ -330,6 +330,46 @@ function BulkBar({ count, onAction, onClear }: BulkBarProps) {
   )
 }
 
+
+// ===== AskPanel =====
+
+interface AskPanelProps {
+  result: AskResponse | null
+  loading: boolean
+}
+
+function AskPanel({ result, loading }: AskPanelProps) {
+  if (loading) {
+    return (
+      <div className="ask-panel">
+        <div className="ask-loading">
+          <span className="skeleton sk-line" style={{ width: '80%' }} />
+          <span className="skeleton sk-line" style={{ width: '60%' }} />
+        </div>
+      </div>
+    )
+  }
+  if (!result) return null
+  return (
+    <div className="ask-panel">
+      <p className="ask-answer">{result.answer}</p>
+      {result.sources.length > 0 && (
+        <div className="ask-sources">
+          <p className="ask-sources-label">Sources</p>
+          <ol className="ask-sources-list">
+            {result.sources.map((s, i) => (
+              <li key={s.id}>
+                <span className="ask-source-num">[{i + 1}]</span>{' '}
+                <a href={s.url} target="_blank" rel="noreferrer">{s.title}</a>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ===== App =====
 
 export default function App() {
@@ -779,6 +819,10 @@ export default function App() {
           <span>{message.text}</span>
           <button className="dismiss" onClick={() => setMessage(null)} aria-label="Dismiss">×</button>
         </div>
+      )}
+
+      {askMode && (
+        <AskPanel result={askResult} loading={askLoading} />
       )}
 
       <main>

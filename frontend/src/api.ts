@@ -1,4 +1,4 @@
-import type { Article, ArticleStatus, AskResponse, Source, Summary } from './types'
+import type { Article, ArticleStatus, AskResponse, IngestRunPage, IngestRunSource, Source, Summary } from './types'
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -85,4 +85,14 @@ export async function pauseScheduler(): Promise<{ paused: boolean }> {
 
 export async function resumeScheduler(): Promise<{ paused: boolean; next_run_at: string | null }> {
   return requestJson('/api/scheduler/resume', { method: 'POST' })
+}
+
+export async function fetchIngestRuns(page = 1, perPage = 10): Promise<IngestRunPage> {
+  const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+  return requestJson<IngestRunPage>(`/api/ingest/runs?${params}`)
+}
+
+export async function fetchIngestRunSources(runId: number): Promise<IngestRunSource[]> {
+  const data = await requestJson<{ items: IngestRunSource[] }>(`/api/ingest/runs/${runId}`)
+  return data.items
 }

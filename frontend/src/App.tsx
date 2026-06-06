@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './styles.css'
 import {
   askAI,
   fetchArticles,
+  fetchIngestRunSources,
+  fetchIngestRuns,
   fetchSchedulerStatus,
   fetchSources,
   fetchSummary,
@@ -15,7 +17,7 @@ import {
   updateSourceEnabled,
 } from './api'
 import type { SchedulerStatus } from './api'
-import type { Article, ArticleStatus, AskResponse, Source, Summary } from './types'
+import type { Article, ArticleStatus, AskResponse, IngestRun, IngestRunSource, Source, Summary } from './types'
 
 type ActiveTab = 'inbox' | 'saved' | 'read' | 'skipped' | 'archived' | 'sources' | 'scheduler'
 
@@ -79,6 +81,28 @@ function relativeTime(value?: string | null): string {
   if (d < 7) return `${d}d ago`
   if (d < 30) return `${Math.floor(d / 7)}w ago`
   return date.toLocaleDateString()
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatDuration(ms?: number | null): string {
+  if (ms === null || ms === undefined) return '—'
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`
 }
 
 function parseTags(tags: string): string[] {
@@ -424,6 +448,183 @@ function relativeCountdown(isoStr: string | null): string {
   return `${s}s`
 }
 
+const RUN_HISTORY_PER_PAGE = 10
+
+function RunHistoryTable({ refreshToken }: { refreshToken: number }) {
+  const [runs, setRuns] = useState<IngestRun[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [expandedRunId, setExpandedRunId] = useState<number | null>(null)
+  const [sourcesByRun, setSourcesByRun] = useState<Record<number, IngestRunSource[]>>({})
+  const [loadingSources, setLoadingSources] = useState<number | null>(null)
+
+  async function loadRuns(nextPage = page) {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await fetchIngestRuns(nextPage, RUN_HISTORY_PER_PAGE)
+      setRuns(data.items)
+      setTotal(data.total)
+      setHasMore(data.has_more)
+      setPage(data.page)
+      setExpandedRunId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load run history')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadRuns(page)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, refreshToken])
+
+  async function toggleRun(runId: number) {
+    if (expandedRunId === runId) {
+      setExpandedRunId(null)
+      return
+    }
+    setExpandedRunId(runId)
+    if (sourcesByRun[runId]) return
+    setLoadingSources(runId)
+    try {
+      const items = await fetchIngestRunSources(runId)
+      setSourcesByRun((prev) => ({ ...prev, [runId]: items }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load run details')
+    } finally {
+      setLoadingSources(null)
+    }
+  }
+
+  const rangeStart = total === 0 ? 0 : (page - 1) * RUN_HISTORY_PER_PAGE + 1
+  const rangeEnd = Math.min(page * RUN_HISTORY_PER_PAGE, total)
+
+  return (
+    <div className="run-history">
+      <div className="run-history-header">
+        <h3 className="scheduler-card-title">Run History</h3>
+        <button className="run-history-refresh" onClick={() => void loadRuns(page)} disabled={loading}>
+          ↻
+        </button>
+      </div>
+
+      {error && <div className="run-history-error">{error}</div>}
+
+      {loading ? (
+        <div className="run-history-loading">
+          <span className="skeleton sk-line" />
+          <span className="skeleton sk-line" style={{ width: '72%' }} />
+        </div>
+      ) : runs.length === 0 ? (
+        <div className="run-history-empty">No ingest runs recorded yet.</div>
+      ) : (
+        <>
+          <div className="run-history-table-wrap">
+            <table className="run-history-table">
+              <thead>
+                <tr>
+                  <th aria-label="Expand run" />
+                  <th>Started at</th>
+                  <th>Duration</th>
+                  <th>Sources run</th>
+                  <th>New articles</th>
+                  <th>Errors</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => {
+                  const expanded = expandedRunId === run.id
+                  const sourceRows = sourcesByRun[run.id] ?? []
+                  return (
+                    <Fragment key={run.id}>
+                      <tr key={run.id} className={expanded ? 'expanded' : undefined}>
+                        <td>
+                          <button
+                            className="run-expand-btn"
+                            onClick={() => void toggleRun(run.id)}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} run ${run.id}`}
+                          >
+                            {expanded ? '⌄' : '›'}
+                          </button>
+                        </td>
+                        <td>
+                          <span className="run-started">{formatDateTime(run.started_at)}</span>
+                          <span className="run-relative">{relativeTime(run.started_at)}</span>
+                        </td>
+                        <td>{formatDuration(run.duration_ms)}</td>
+                        <td>{run.sources_run}</td>
+                        <td>{run.total_new}</td>
+                        <td>
+                          <span className={run.total_errors > 0 ? 'run-error-count' : undefined}>
+                            {run.total_errors}
+                          </span>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr key={`${run.id}-sources`} className="run-source-row">
+                          <td colSpan={6}>
+                            {loadingSources === run.id ? (
+                              <div className="run-source-loading">Loading source breakdown…</div>
+                            ) : sourceRows.length === 0 ? (
+                              <div className="run-source-empty">No per-source rows recorded for this run.</div>
+                            ) : (
+                              <table className="run-source-table">
+                                <thead>
+                                  <tr>
+                                    <th>Source name</th>
+                                    <th>Articles found</th>
+                                    <th>New</th>
+                                    <th>Duplicates</th>
+                                    <th>Error message</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sourceRows.map((source) => (
+                                    <tr key={source.id}>
+                                      <td>{source.source_name}</td>
+                                      <td>{source.articles_found}</td>
+                                      <td>{source.articles_new}</td>
+                                      <td>{source.duplicates}</td>
+                                      <td className={source.error_message ? 'run-source-error' : 'run-source-muted'}>
+                                        {source.error_message || '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="run-history-pagination">
+            <span>{rangeStart}-{rangeEnd} of {total}</span>
+            <div className="run-history-page-buttons">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={loading || page === 1}>
+                ‹
+              </button>
+              <button onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>
+                ›
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface SchedulerTabProps {
   onFetchNow: () => Promise<void>
   ingesting: boolean
@@ -436,6 +637,7 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
   const [actionPending, setActionPending] = useState(false)
   const [tabMessage, setTabMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null)
   const [countdown, setCountdown] = useState<string>('—')
+  const [historyRefresh, setHistoryRefresh] = useState(0)
 
   async function loadStatus() {
     try {
@@ -503,6 +705,11 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
     } finally {
       setActionPending(false)
     }
+  }
+
+  async function handleFetchNow() {
+    await onFetchNow()
+    setHistoryRefresh((value) => value + 1)
   }
 
   if (loadingStatus) {
@@ -595,13 +802,15 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
           </button>
           <button
             className="scheduler-fetch-btn"
-            onClick={() => void onFetchNow()}
+            onClick={() => void handleFetchNow()}
             disabled={ingesting || actionPending}
           >
             {ingesting ? '⟳ Fetching…' : '↻ Fetch now'}
           </button>
         </div>
       </div>
+
+      <RunHistoryTable refreshToken={historyRefresh} />
     </div>
   )
 }

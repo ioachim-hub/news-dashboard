@@ -1,26 +1,12 @@
-from pathlib import Path
+import pytest
 
 from news_dashboard.db import (
     POSTGRES_SCHEMA,
-    SQLITE_COLUMN_MIGRATIONS,
+    active_database_url,
     describe_database,
-    init_db,
+    insert_article_sql,
+    insert_duplicate_article_sql,
 )
-from news_dashboard.ingest import ingest_all, list_articles
-
-
-def test_sqlite_file_database_reports_path_and_persists_between_connections(tmp_path: Path) -> None:
-    db_path = tmp_path / "durable.db"
-
-    init_db(db_path)
-    first = ingest_all(db_path)
-    second = ingest_all(db_path)
-
-    assert db_path.exists()
-    assert sum(value for value in first.values() if value > 0) >= 0
-    assert sum(value for value in second.values() if value > 0) == 0
-    assert list_articles(limit=1, db_path=db_path) or first == second
-    assert describe_database(db_path) == str(db_path)
 
 
 def test_postgres_url_is_reported_without_password() -> None:
@@ -32,6 +18,34 @@ def test_postgres_url_is_reported_without_password() -> None:
 def test_postgres_articles_schema_includes_embedding_column() -> None:
     postgres_schema = "\n".join(POSTGRES_SCHEMA).lower()
 
-    assert ("articles", "embedding", "BLOB") in SQLITE_COLUMN_MIGRATIONS
     assert "embedding bytea" in postgres_schema
     assert "alter table articles add column if not exists embedding bytea" in postgres_schema
+
+
+def test_database_url_is_required(monkeypatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+
+    with pytest.raises(RuntimeError, match="Postgres is required"):
+        active_database_url()
+
+
+def test_non_postgres_database_url_is_rejected() -> None:
+    with pytest.raises(RuntimeError, match="DATABASE_URL must start"):
+        active_database_url("sqlite:///tmp/news.db")
+
+
+def test_article_insert_sql_is_postgres_only() -> None:
+    sql = insert_article_sql()
+
+    assert "ON CONFLICT (url) DO NOTHING" in sql
+    assert "%s" in sql
+    assert "INSERT OR IGNORE" not in sql
+
+
+def test_duplicate_article_insert_sql_is_postgres_only() -> None:
+    sql = insert_duplicate_article_sql()
+
+    assert "ON CONFLICT (url) DO NOTHING" in sql
+    assert "%s" in sql
+    assert "INSERT OR IGNORE" not in sql

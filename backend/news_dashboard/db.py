@@ -129,6 +129,13 @@ POSTGRES_SCHEMA = [
     # PostgreSQL FTS via tsvector — added as a generated column if not present
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS fts_vector tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(tags,''))) STORED",
     "CREATE INDEX IF NOT EXISTS idx_articles_fts ON articles USING gin(fts_vector)",
+    # Settings table for persistent configuration
+    """
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+    """,
     # Source health columns (safe to run repeatedly)
     "ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_success_at TEXT",
     "ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_error TEXT",
@@ -141,14 +148,23 @@ POSTGRES_SCHEMA = [
 ]
 
 
-def active_database_url(database_url: str | None = None) -> str | None:
+def active_database_url(database_url: str | None = None) -> str:
     if database_url is not None:
+        if not database_url.startswith(POSTGRES_PREFIXES):
+            raise RuntimeError(
+                f"DATABASE_URL must start with 'postgresql://' or 'postgres://'; got: {database_url!r}"
+            )
         return database_url
-    if os.getenv("DATABASE_URL"):
-        return os.getenv("DATABASE_URL")
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        if not env_url.startswith(POSTGRES_PREFIXES):
+            raise RuntimeError(
+                f"DATABASE_URL must start with 'postgresql://' or 'postgres://'; got: {env_url!r}"
+            )
+        return env_url
     host = os.getenv("POSTGRES_HOST")
     if not host:
-        return None
+        raise RuntimeError("Postgres is required: set DATABASE_URL or POSTGRES_HOST")
     user = os.getenv("POSTGRES_USER", "news_dashboard")
     password = os.getenv("POSTGRES_PASSWORD", "")
     database = os.getenv("POSTGRES_DB", "news_dashboard")
@@ -157,7 +173,10 @@ def active_database_url(database_url: str | None = None) -> str | None:
 
 
 def is_postgres(database_url: str | None = None) -> bool:
-    url = active_database_url(database_url)
+    try:
+        url = active_database_url(database_url)
+    except RuntimeError:
+        return False
     return bool(url and url.startswith(POSTGRES_PREFIXES))
 
 
@@ -191,8 +210,11 @@ class PostgresConnection:
 
 @contextmanager
 def connect(db_path: Path | None = None, database_url: str | None = None) -> Iterator[Any]:
-    url = active_database_url(database_url)
-    if is_postgres(url):
+    try:
+        url: str | None = active_database_url(database_url)
+    except RuntimeError:
+        url = None
+    if url and url.startswith(POSTGRES_PREFIXES):
         if psycopg is None:
             raise RuntimeError("DATABASE_URL is PostgreSQL but psycopg is not installed")
         conn = psycopg.connect(url, row_factory=dict_row)
@@ -247,6 +269,27 @@ def init_db(db_path: Path | None = None, database_url: str | None = None) -> Non
         _build_fts_index(conn)
 
 
+def get_setting(key: str, default: str | None = None) -> str | None:
+    """Read a value from the settings table."""
+    try:
+        with connect() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            if row:
+                return row["value"] if isinstance(row, dict) else row[0]
+    except Exception:
+        pass
+    return default
+
+
+def set_setting(key: str, value: str) -> None:
+    """Upsert a key/value pair in the settings table."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (key, value),
+        )
+
+
 def row_to_dict(row: Any) -> dict:
     if isinstance(row, dict):
         return dict(row)
@@ -254,36 +297,22 @@ def row_to_dict(row: Any) -> dict:
 
 
 def insert_article_sql() -> str:
-    if is_postgres():
-        return """
-            INSERT INTO articles(
-              url, canonical_url, title, source_slug, source_name, category, kind,
-              published_at, summary, reason, importance_score, tags
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (url) DO NOTHING
-            """
     return """
-        INSERT OR IGNORE INTO articles(
+        INSERT INTO articles(
           url, canonical_url, title, source_slug, source_name, category, kind,
           published_at, summary, reason, importance_score, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (url) DO NOTHING
         """
 
 
 def insert_duplicate_article_sql() -> str:
-    if is_postgres():
-        return """
-            INSERT INTO articles(
-              url, canonical_url, title, source_slug, source_name, category, kind,
-              published_at, summary, reason, importance_score, tags
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (url) DO NOTHING
-            """
     return """
-        INSERT OR IGNORE INTO articles(
+        INSERT INTO articles(
           url, canonical_url, title, source_slug, source_name, category, kind,
           published_at, summary, reason, importance_score, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (url) DO NOTHING
         """
 
 

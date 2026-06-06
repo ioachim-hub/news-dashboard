@@ -267,6 +267,25 @@ def insert_article_sql() -> str:
         """
 
 
+def insert_duplicate_article_sql() -> str:
+    if is_postgres():
+        return """
+            INSERT INTO articles(
+              url, canonical_url, title, source_slug, source_name, category, kind,
+              published_at, summary, reason, importance_score, tags,
+              status, canonical_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'archived', ?)
+            ON CONFLICT (url) DO NOTHING
+            """
+    return """
+        INSERT OR IGNORE INTO articles(
+          url, canonical_url, title, source_slug, source_name, category, kind,
+          published_at, summary, reason, importance_score, tags,
+          status, canonical_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'archived', ?)
+        """
+
+
 def search_articles_sql(terms: list[str], limit: int) -> tuple[str, list[Any]]:
     """Build a LIKE-based search query compatible with both SQLite and PostgreSQL."""
     if not terms:

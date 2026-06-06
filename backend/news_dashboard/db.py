@@ -68,6 +68,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
   title, summary, reason, tags, source_name,
   content=articles, content_rowid=id
 );
+
+CREATE TABLE IF NOT EXISTS ingest_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  duration_ms INTEGER,
+  total_new INTEGER NOT NULL DEFAULT 0,
+  total_errors INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS ingest_run_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ingest_runs(id),
+  source_name TEXT NOT NULL,
+  articles_found INTEGER NOT NULL DEFAULT 0,
+  articles_new INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # Additive columns to add when upgrading existing databases
@@ -145,6 +162,26 @@ POSTGRES_SCHEMA = [
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS canonical_id BIGINT REFERENCES articles(id)",
     # AI Q&A embeddings for saved/read article retrieval
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding BYTEA",
+    # Ingest run history tables
+    """
+    CREATE TABLE IF NOT EXISTS ingest_runs (
+      id BIGSERIAL PRIMARY KEY,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      duration_ms INTEGER,
+      total_new INTEGER NOT NULL DEFAULT 0,
+      total_errors INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ingest_run_sources (
+      id BIGSERIAL PRIMARY KEY,
+      run_id BIGINT NOT NULL REFERENCES ingest_runs(id),
+      source_name TEXT NOT NULL,
+      articles_found INTEGER NOT NULL DEFAULT 0,
+      articles_new INTEGER NOT NULL DEFAULT 0
+    )
+    """,
 ]
 
 

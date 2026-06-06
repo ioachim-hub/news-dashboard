@@ -24,6 +24,7 @@ helm upgrade --install news-dashboard ./helm/news-dashboard \
   --namespace news-dashboard --create-namespace \
   --set image.repository="${REPO}" \
   --set image.tag="${TAG}" \
+  --set-string image.pullSecretName="${PULL_SECRET_NAME:-}" \
   --set service.type=NodePort \
   --set service.nodePort=30088 \
   --set persistence.hostPath=/home/ioachim-minipc/news-dashboard-data \

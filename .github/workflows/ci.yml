@@ -1,28 +1,31 @@
 name: CI / CD
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  IMAGE: ghcr.io/ioachim-hub/news-dashboard
-
+# Runs tests + typecheck on every PR.
+# On push to main: also builds the Docker image, pushes it to GHCR, and
+# deploys to the mini PC over SSH.
+#
+# Branch is 'main'. If you rename it to 'master', update the two filters below.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
-# Tightest permissions that still work:
-#   contents:read  — checkout
-#   packages:write — push to GHCR (publish job only)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Full image name. GITHUB_REPOSITORY is "owner/repo" (lower-cased by GHCR).
+  IMAGE: ghcr.io/${{ github.repository }}
+
+# Minimum permissions. packages:write is only exercised by the publish job;
+# GitHub scopes GITHUB_TOKEN to the individual job automatically.
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # ────────────────────────────────────────────────────────────────
-  # 1. Test & build artifacts
-  # ────────────────��───────────────────────────────────────────────
+  # ── 1. TEST ────────────────────────────────────────────────────────────────
   test:
-    name: Test & Build
+    name: Test & build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,32 +34,29 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-
-      - name: Install backend dependencies
-        run: pip install -e '.[dev]'
-
-      - name: Backend tests
-        run: pytest -v
+      - run: pip install -e '.[dev]'
+      - run: pytest -v
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+      - run: npm install
+      - run: npm run build   # includes tsc -b typecheck
 
-      - name: Install frontend dependencies
-        run: npm install
-
-      - name: Frontend typecheck & build
-        run: npm run build
-
-  # ────────────────────────────────────────────────────────────────
-  # 2. Build and push Docker image to GHCR
-  #    Runs only on pushes to main (not on PRs).
-  #    Image is tagged with the commit SHA — never "latest" alone,
-  #    so imagePullPolicy: IfNotPresent works correctly.
-  # ────────────────────────────────────────────────────────────────
+  # ── 2. PUBLISH ─────────────────────────────────────────────────────────────
+  # Builds one image and pushes two tags:
+  #   :<sha>    — immutable, pinned to this exact commit; used by the deploy step
+  #   :latest   — floating convenience tag for manual pulls / rollback reference
+  #
+  # Why two tags? "latest" alone is not enough: if the tag name hasn't changed,
+  # a node with imagePullPolicy: IfNotPresent won't re-pull it.  Pinning to the
+  # SHA guarantees a fresh pull for every deploy without setting Always.
+  #
+  # No secrets needed here — GITHUB_TOKEN is provided automatically and has
+  # packages:write by default for the repo that owns the package.
   publish:
-    name: Publish container
+    name: Build & push image
     needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -65,18 +65,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -86,62 +83,159 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
 
-  # ────────────────────────────────────────────────────────────────
-  # 3. Deploy to ioachim-minipc
+  # ── 3. DEPLOY ──────────────────────────────────────────────────────────────
+  # SSHes into the mini PC and updates the running service.
   #
-  #    Runs on a self-hosted GitHub Actions runner installed on the
-  #    production machine.  The runner must have kubectl and helm in
-  #    PATH and a valid kubeconfig (~/.kube/config or KUBECONFIG).
+  # Concurrency: cancel-in-progress: false means a second push waits rather
+  # than racing.  Never cancel a deploy mid-flight.
   #
-  #    concurrency: we never cancel a running deploy — a concurrent
-  #    push waits until the current deploy finishes.
-  # ────────────────────────────────────────────────────────────────
+  # ┌──────────────────────────────────────────────────────────────────────┐
+  # │  SECRETS — add in: GitHub repo → Settings → Secrets → Actions       │
+  # │                                                                      │
+  # │  DEPLOY_HOST      IP or hostname of the mini PC                      │
+  # │                   e.g. "192.168.1.42"  or  "minipc.example.com"      │
+  # │                                                                      │
+  # │  DEPLOY_USER      SSH login name on the mini PC                      │
+  # │                   e.g. "ioachim"                                     │
+  # │                                                                      │
+  # │  DEPLOY_SSH_KEY   The *private* half of an SSH key pair.             │
+  # │                   The *public* half must be in                       │
+  # │                   ~/.ssh/authorized_keys on the mini PC.             │
+  # │                                                                      │
+  # │                   Generate a dedicated deploy key (don't reuse your  │
+  # │                   personal key):                                      │
+  # │                     ssh-keygen -t ed25519 -C deploy -f /tmp/deploy   │
+  # │                     # /tmp/deploy     → DEPLOY_SSH_KEY secret        │
+  # │                     # /tmp/deploy.pub → append to mini PC            │
+  # │                     #                  ~/.ssh/authorized_keys         │
+  # │                                                                      │
+  # │  GHCR_TOKEN       A GitHub Personal Access Token with the            │
+  # │                   *read:packages* scope (nothing else).               │
+  # │                   Create at: github.com/settings/tokens              │
+  # │                   (Classic token, read:packages, 1-year expiry.)     │
+  # │                   This lets the mini PC pull the image from GHCR.    │
+  # │                                                                      │
+  # │                   SHORTCUT: if you make the GHCR package public      │
+  # │                   (repo Settings → Packages → Change visibility),    │
+  # │                   you can skip GHCR_TOKEN entirely and remove the    │
+  # │                   docker-login lines from the deploy script below.   │
+  # │                                                                      │
+  # │  OPTIONAL variable (Settings → Variables, not Secrets):              │
+  # │  DEPLOY_PORT      SSH port if not 22  (e.g. "2222")                 │
+  # └──────────────────────────────────────────────────────────────────────┘
   deploy:
-    name: Deploy to ioachim-minipc
+    name: Deploy to mini PC
     needs: publish
-    runs-on: [self-hosted, ioachim-minipc]
+    runs-on: ubuntu-latest
     environment: production
     concurrency:
       group: deploy-production
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
-
-      # Refresh the GHCR imagePullSecret in the cluster.
-      # Uses GHCR_READ_TOKEN (a PAT with read:packages scope) — unlike
-      # GITHUB_TOKEN, a PAT doesn't expire after the workflow, so pods that
-      # restart days later can still pull the image.
-      - name: Refresh GHCR pull secret in cluster
+      # Lay down the private key and trust the host's key.
+      # ssh-keyscan does a live fetch from DEPLOY_HOST — this requires the
+      # SSH port to be reachable from GitHub's runner IPs. If your mini PC
+      # is only on a LAN, you'll need port-forwarding or a tunnel.
+      - name: Configure SSH
         run: |
-          kubectl create secret docker-registry ghcr-pull-secret \
-            --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
-            --docker-password=${{ secrets.GHCR_READ_TOKEN }} \
-            --namespace=news-dashboard \
-            --dry-run=client -o yaml | kubectl apply -f -
+          install -dm700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H -p "${{ vars.DEPLOY_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      # Helm upgrade is idempotent: creates the release if it doesn't exist,
-      # updates it otherwise.  We pin the exact SHA tag so Kubernetes always
-      # pulls the freshly-built image (IfNotPresent + new tag = one pull).
-      - name: Deploy with Helm
+      # ── Option A: Helm / Kubernetes ──────────────────────────────────────
+      # Assumes the mini PC has:
+      #   • The repo checked out at ~/news-dashboard  (git pull updates the chart)
+      #   • kubectl pointing at the local cluster
+      #   • helm installed
+      #
+      # CONFIGURE: adjust the --set flags (namespace, nodePort, hostPaths,
+      # etc.) to match your actual deployment. The deployment name below
+      # follows the Helm convention release-name + chart-name; verify yours
+      # with: kubectl -n <ns> get deploy
+      - name: Deploy (Helm)
+        env:
+          SHA: ${{ github.sha }}
+          IMG: ${{ env.IMAGE }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
         run: |
+          ssh -i ~/.ssh/id_deploy \
+              -p "${{ vars.DEPLOY_PORT || '22' }}" \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "SHA='${SHA}' IMG='${IMG}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_ACTOR='${GHCR_ACTOR}' bash -s" \
+              << 'REMOTE'
+          set -euo pipefail
+
+          # Authenticate to GHCR so the cluster node can pull the image.
+          # Remove these two lines if the GHCR package is public.
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+
+          # Pull eagerly — surfaces auth failures before touching the cluster.
+          docker pull "${IMG}:${SHA}"
+
+          # Sync Helm chart changes from the repo.
+          cd ~/news-dashboard && git pull --ff-only
+
+          # Upgrade (or install on first run). --set image.tag pins the exact
+          # image; add any other --set overrides your values.yaml needs.
           helm upgrade --install news-dashboard ./helm/news-dashboard \
             --namespace news-dashboard --create-namespace \
-            --set image.tag=${{ github.sha }} \
-            --set service.type=NodePort \
-            --set service.nodePort=30088 \
-            --set persistence.hostPath=/home/ioachim-minipc/news-dashboard-data \
-            --set postgresql.persistence.hostPath=/home/ioachim-minipc/news-dashboard-postgres-data
+            --set "image.tag=${SHA}"
+            # CONFIGURE: uncomment / add any extra overrides, e.g.:
+            # --set service.type=NodePort \
+            # --set service.nodePort=30088 \
+            # --set persistence.hostPath=/your/data/path
 
-      # Wait for the app pod to become ready.  120 s is generous for a
-      # single-container Python app on a local cluster.
-      - name: Wait for app rollout
-        run: |
+          # Wait for the new pods to become ready.
+          # CONFIGURE: replace the deployment name if yours differs.
           kubectl -n news-dashboard rollout status \
             deployment/news-dashboard-news-dashboard --timeout=120s
+          REMOTE
 
-      - name: Smoke-test /api/health
+      # ── Option B: docker compose (use instead of Option A) ──────────────
+      # Assumes the repo is checked out at ~/news-dashboard and
+      # docker-compose.yml has an 'image:' key (not just 'build:').
+      # The IMAGE_TAG env var must be consumed by your compose file, e.g.:
+      #   image: ghcr.io/ioachim-hub/news-dashboard:${IMAGE_TAG:-latest}
+      #
+      # To switch to this option: comment out the "Deploy (Helm)" step above
+      # and uncomment the block below.
+      #
+      # - name: Deploy (docker compose)
+      #   env:
+      #     SHA: ${{ github.sha }}
+      #     IMG: ${{ env.IMAGE }}
+      #     GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      #     GHCR_ACTOR: ${{ github.actor }}
+      #   run: |
+      #     ssh -i ~/.ssh/id_deploy \
+      #         -p "${{ vars.DEPLOY_PORT || '22' }}" \
+      #         -o StrictHostKeyChecking=yes \
+      #         -o BatchMode=yes \
+      #         "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+      #         "SHA='${SHA}' IMG='${IMG}' GHCR_TOKEN='${GHCR_TOKEN}' GHCR_ACTOR='${GHCR_ACTOR}' bash -s" \
+      #         << 'REMOTE'
+      #     set -euo pipefail
+      #     echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+      #     docker pull "${IMG}:${SHA}"
+      #     cd ~/news-dashboard && git pull --ff-only
+      #     IMAGE_TAG="${SHA}" docker compose up -d --no-build
+      #     REMOTE
+
+      # Basic liveness check — verifies the new container is actually serving.
+      # CONFIGURE: change the URL/port to match your setup.
+      # Remove this step if the app isn't reachable on localhost from the mini PC.
+      - name: Smoke test
         run: |
-          curl -sf --retry 5 --retry-delay 3 \
-            http://127.0.0.1:30088/api/health | grep '"status":"ok"'
+          ssh -i ~/.ssh/id_deploy \
+              -p "${{ vars.DEPLOY_PORT || '22' }}" \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "curl -sf --max-time 10 --retry 6 --retry-delay 5 \
+                 http://localhost:8080/api/health | grep '\"status\":\"ok\"'"

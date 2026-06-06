@@ -34,6 +34,7 @@ import type {
   ArticlesOverTimePoint,
   AskResponse,
   Source,
+  SourceHealth,
   SourceVolumePoint,
   StatsOverview,
   Summary,

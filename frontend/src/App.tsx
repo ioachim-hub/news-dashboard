@@ -495,16 +495,6 @@ function formatInteger(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
-function formatDuration(ms: number): string {
-  if (!ms) return '0s'
-  if (ms < 1000) return `${ms}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`
-  const minutes = Math.floor(seconds / 60)
-  const rem = Math.round(seconds % 60)
-  return rem ? `${minutes}m ${rem}s` : `${minutes}m`
-}
-
 function formatTimeBucket(value: string, range: StatsRangeId): string {
   if (range === 'today') {
     return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })

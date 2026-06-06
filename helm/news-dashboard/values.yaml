@@ -8,6 +8,10 @@ image:
 service:
   type: ClusterIP
   port: 8080
+  # Set type: NodePort and nodePort: <30000-32767> when Caddy runs on the host
+  # and needs a stable port that survives pod restarts and Helm upgrades.
+  # Example override: helm upgrade --set service.type=NodePort,service.nodePort=30088
+  nodePort: ""
 
 # SQLite fallback only. Production/local-k8s uses PostgreSQL below.
 persistence:

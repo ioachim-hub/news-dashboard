@@ -4,7 +4,14 @@ news.lihor.ro {
 		ioachim $2a$14$UGeTXqBpaCkT6orMq3/N5epoiTuruDuef9wSKocur71ikilGufq0C
 	}
 
-	reverse_proxy 10.107.247.155:8080
+	# Proxy to the Kubernetes NodePort instead of a mutable ClusterIP.
+	# Deploy with: helm upgrade news-dashboard ./helm/news-dashboard \
+	#   --set service.type=NodePort,service.nodePort=30088
+	# The NodePort (30088) is stable across pod restarts and Helm upgrades
+	# as long as the value stays the same. Never hardcode a ClusterIP here.
+	reverse_proxy 127.0.0.1:30088
+
+	encode zstd gzip
 
 	header {
 		X-Content-Type-Options nosniff

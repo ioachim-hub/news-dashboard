@@ -1,181 +1,435 @@
 import { useEffect, useMemo, useState } from 'react'
 import './styles.css'
-import { fetchArticles, fetchSources, fetchSummary, ingestNow, updateArticleStatus } from './api'
+import { fetchArticles, fetchSources, fetchSummary, ingestNow, searchArticles, updateArticleStatus } from './api'
 import type { Article, ArticleStatus, Source, Summary } from './types'
 
-const statuses: Array<ArticleStatus | 'all'> = ['all', 'new', 'saved', 'read', 'skipped', 'archived']
-const categories = ['all', 'python', 'ai-llm', 'agents', 'cloud-infra', 'engineering', 'trending', 'repositories']
+type ActiveTab = 'inbox' | 'saved' | 'read' | 'skipped' | 'archived' | 'sources'
 
-function fmt(value?: string | null) {
-  if (!value) return 'unknown'
+const TAB_STATUS: Record<Exclude<ActiveTab, 'sources'>, ArticleStatus> = {
+  inbox: 'new',
+  saved: 'saved',
+  read: 'read',
+  skipped: 'skipped',
+  archived: 'archived',
+}
+
+const TABS: { id: ActiveTab; label: string }[] = [
+  { id: 'inbox',    label: 'Inbox'    },
+  { id: 'saved',    label: 'Saved'    },
+  { id: 'read',     label: 'Read'     },
+  { id: 'skipped',  label: 'Skipped'  },
+  { id: 'archived', label: 'Archived' },
+  { id: 'sources',  label: 'Sources'  },
+]
+
+const CATEGORIES = [
+  'all', 'python', 'ai-llm', 'agents', 'cloud-infra', 'engineering', 'trending', 'repositories',
+]
+
+const STATUS_NEXT: Record<ArticleStatus, ArticleStatus[]> = {
+  new:      ['read', 'saved', 'skipped'],
+  saved:    ['read', 'skipped', 'archived'],
+  read:     ['saved', 'archived'],
+  skipped:  ['read', 'archived'],
+  archived: ['read'],
+}
+
+const ACTION_LABELS: Record<ArticleStatus, string> = {
+  new:      '↩ Restore',
+  read:     '✓ Read',
+  saved:    '♡ Save',
+  skipped:  '✕ Skip',
+  archived: '⊠ Archive',
+}
+
+function relativeTime(value?: string | null): string {
+  if (!value) return ''
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+  if (Number.isNaN(date.getTime())) return value
+  const ms = Date.now() - date.getTime()
+  const h = Math.floor(ms / 3600000)
+  if (h < 1) return 'just now'
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 7) return `${d}d ago`
+  if (d < 30) return `${Math.floor(d / 7)}w ago`
+  return date.toLocaleDateString()
 }
 
-function statusLabel(status: ArticleStatus | 'all') {
-  return status === 'all' ? 'All' : status[0].toUpperCase() + status.slice(1)
+function parseTags(tags: string): string[] {
+  return tags.split(',').map((t) => t.trim()).filter(Boolean)
 }
 
-function tagList(tags: string) {
-  return tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+interface ArticleCardProps {
+  article: Article
+  onStatus: (id: number, status: ArticleStatus) => Promise<void>
 }
 
-function ArticleCard({ article, onStatus }: { article: Article; onStatus: (id: number, status: ArticleStatus) => Promise<void> }) {
+function ArticleCard({ article, onStatus }: ArticleCardProps) {
+  const [pending, setPending] = useState<ArticleStatus | null>(null)
+  const tags = parseTags(article.tags)
+  const date = article.published_at ?? article.discovered_at
+  const actions = STATUS_NEXT[article.status] ?? ['read', 'saved', 'skipped']
+
+  async function handle(status: ArticleStatus) {
+    setPending(status)
+    try {
+      await onStatus(article.id, status)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const showReason = article.reason
+    && article.reason !== article.summary
+    && !article.reason.startsWith('Tracked under')
+
   return (
-    <article className="card article">
-      <div className="cardTop">
-        <span className={`pill ${article.category}`}>{article.category}</span>
-        <span className={`status ${article.status}`}>{article.status}</span>
+    <article className="article-card">
+      <div className="card-header">
+        <span className={`badge cat-${article.category}`}>
+          {article.category.replace(/-/g, '​-')}
+        </span>
+        <span className={`badge status-${article.status}`}>{article.status}</span>
+        <span className="card-date">{relativeTime(date)}</span>
       </div>
-      <h3><a href={article.url} target="_blank" rel="noreferrer">{article.title}</a></h3>
-      <p className="meta">{article.source_name} · {fmt(article.published_at ?? article.discovered_at)} · score {article.importance_score}</p>
-      <p className="summary">{article.summary || article.reason}</p>
-      <p className="reason">{article.reason}</p>
-      {tagList(article.tags).length > 0 ? (
-        <div className="tags">{tagList(article.tags).map((tag) => <span key={tag}>#{tag}</span>)}</div>
-      ) : null}
-      <div className="actions">
-        <button onClick={() => onStatus(article.id, 'read')}>Read</button>
-        <button onClick={() => onStatus(article.id, 'saved')}>Save</button>
-        <button onClick={() => onStatus(article.id, 'skipped')}>Skip</button>
-        <button onClick={() => onStatus(article.id, 'archived')}>Archive</button>
+      <h3 className="card-title">
+        <a href={article.url} target="_blank" rel="noreferrer">{article.title}</a>
+      </h3>
+      <p className="card-source">{article.source_name}</p>
+      {article.summary ? <p className="card-summary">{article.summary}</p> : null}
+      {showReason ? <p className="card-reason">{article.reason}</p> : null}
+      {tags.length > 0 && (
+        <div className="card-tags">
+          {tags.map((tag) => <span key={tag} className="tag">#{tag}</span>)}
+        </div>
+      )}
+      <div className="card-actions">
+        {actions.map((action) => (
+          <button
+            key={action}
+            className={`action-btn action-${action}`}
+            onClick={() => handle(action)}
+            disabled={pending !== null}
+            title={ACTION_LABELS[action]}
+          >
+            {pending === action ? '…' : ACTION_LABELS[action]}
+          </button>
+        ))}
       </div>
     </article>
   )
 }
 
+function SkeletonCard() {
+  return (
+    <div className="skeleton-card" aria-hidden="true">
+      <div style={{ display: 'flex', gap: 6 }}>
+        <div className="skeleton sk-h" style={{ width: 70 }} />
+        <div className="skeleton sk-h" style={{ width: 48 }} />
+        <div className="skeleton sk-h" style={{ width: 44, marginLeft: 'auto' }} />
+      </div>
+      <div className="skeleton sk-h" />
+      <div className="skeleton sk-h-sm" />
+      <div className="skeleton sk-line" />
+      <div className="skeleton sk-line-sm" />
+      <div className="skeleton sk-line-xs" />
+      <div style={{ display: 'flex', gap: 6 }}>
+        <div className="skeleton sk-bar" style={{ flex: 1 }} />
+        <div className="skeleton sk-bar" style={{ flex: 1 }} />
+        <div className="skeleton sk-bar" style={{ flex: 1 }} />
+      </div>
+    </div>
+  )
+}
+
+function SourceHealthBadge({ source }: { source: Source }) {
+  const hoursSince = (iso?: string | null): number | null => {
+    if (!iso) return null
+    const ms = Date.now() - new Date(iso).getTime()
+    return Math.floor(ms / 3600000)
+  }
+
+  if (source.last_error) {
+    return <span className="source-health error">● error</span>
+  }
+  const h = hoursSince(source.last_success_at ?? source.last_checked_at)
+  if (h === null) return null
+  if (h > 48) return <span className="source-health stale">● stale ({Math.floor(h / 24)}d)</span>
+  return <span className="source-health healthy">● ok</span>
+}
+
 function SourcesPanel({ sources }: { sources: Source[] }) {
   const grouped = useMemo(() => {
-    return sources.reduce<Record<string, Source[]>>((acc, source) => {
-      acc[source.category] = [...(acc[source.category] ?? []), source]
+    return sources.reduce<Record<string, Source[]>>((acc, s) => {
+      if (!acc[s.category]) acc[s.category] = []
+      acc[s.category].push(s)
       return acc
     }, {})
   }, [sources])
 
+  function kindClass(kind: string): string {
+    if (kind.startsWith('github')) return 'kind-github'
+    if (kind.startsWith('trending')) return 'kind-trending'
+    if (kind.startsWith('scraped')) return 'kind-scraped'
+    return 'kind-rss'
+  }
+  function kindLabel(kind: string): string {
+    return kind.replace(/_/g, ' ').replace('feed', '').trim() || 'rss'
+  }
+
   return (
-    <section>
-      <h2>Sources</h2>
-      <div className="sourceGrid">
-        {Object.entries(grouped).map(([category, items]) => (
-          <article className="card" key={category}>
-            <h3>{category}</h3>
-            <ul>
-              {items.map((source) => (
-                <li key={source.slug}>
+    <div className="sources-grid">
+      {Object.entries(grouped).map(([cat, items]) => (
+        <article className="source-card" key={cat}>
+          <h3 className="source-category">{cat.replace(/-/g, ' ')}</h3>
+          <ul className="source-list">
+            {items.map((source) => (
+              <li key={source.slug} className="source-item">
+                <div className="source-main">
                   <a href={source.url} target="_blank" rel="noreferrer">{source.name}</a>
-                  <span className="sourceKind">{source.kind}</span>
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
-      </div>
-    </section>
+                  <span className={`badge ${kindClass(source.kind)}`}>{kindLabel(source.kind)}</span>
+                </div>
+                <div className="source-meta">
+                  {source.last_checked_at && (
+                    <span className="source-checked">checked {relativeTime(source.last_checked_at)}</span>
+                  )}
+                  <SourceHealthBadge source={source} />
+                </div>
+                {source.last_error && (
+                  <p className="source-error-msg" title={source.last_error}>
+                    {source.last_error.length > 80 ? source.last_error.slice(0, 80) + '…' : source.last_error}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
+    </div>
   )
 }
 
-function App() {
+export default function App() {
   const [articles, setArticles] = useState<Article[]>([])
   const [sources, setSources] = useState<Source[]>([])
   const [summary, setSummary] = useState<Summary>({ byStatus: {}, byCategory: {} })
-  const [status, setStatus] = useState<ArticleStatus | 'all'>('new')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('inbox')
   const [category, setCategory] = useState('all')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [ingesting, setIngesting] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ text: string; kind: 'info' | 'success' | 'error' } | null>(null)
 
-  async function load(options: { preserveMessage?: boolean } = {}) {
+  const currentStatus: ArticleStatus | undefined =
+    activeTab !== 'sources' ? TAB_STATUS[activeTab] : undefined
+
+  async function load(opts: { preserveMessage?: boolean } = {}) {
     setLoading(true)
     try {
       const [nextArticles, nextSources, nextSummary] = await Promise.all([
-        fetchArticles(status, category),
+        activeTab !== 'sources'
+          ? fetchArticles(currentStatus, category !== 'all' ? category : undefined)
+          : Promise.resolve<Article[]>([]),
         fetchSources(),
         fetchSummary(),
       ])
       setArticles(nextArticles)
       setSources(nextSources)
       setSummary(nextSummary)
-      if (!options.preserveMessage) setMessage(null)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to load dashboard')
+      if (!opts.preserveMessage) setMessage(null)
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : 'Failed to load', kind: 'error' })
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    void load()
-  }, [status, category])
+  // Re-load when tab or category changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load() }, [activeTab, category])
 
   async function runIngest() {
     setIngesting(true)
-    setMessage('Ingesting feeds… this can take a minute because every source is checked.')
+    setMessage({ text: 'Fetching feeds — this may take a minute.', kind: 'info' })
     try {
       const result = await ingestNow()
-      const failed = Object.values(result.results).filter((value) => value < 0).length
-      setMessage(`Ingest complete: ${result.inserted} new item(s). ${failed ? `${failed} source(s) failed.` : 'No source failures.'}`)
+      const failed = Object.values(result.results).filter((v) => v < 0).length
+      setMessage({
+        text: `Done: ${result.inserted} new article(s).${failed ? ` ${failed} source(s) failed.` : ''}`,
+        kind: failed ? 'info' : 'success',
+      })
       await load({ preserveMessage: true })
-    } catch (error) {
-      setMessage(error instanceof Error ? `Ingest failed: ${error.message}` : 'Ingest failed')
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? `Ingest failed: ${err.message}` : 'Ingest failed', kind: 'error' })
     } finally {
       setIngesting(false)
     }
   }
 
-  async function changeStatus(id: number, nextStatus: ArticleStatus) {
-    await updateArticleStatus(id, nextStatus)
+  async function changeStatus(id: number, next: ArticleStatus) {
+    await updateArticleStatus(id, next)
     await load()
   }
 
+  // Client-side search filter (also triggers backend search when in Search mode)
+  const filteredArticles = useMemo(() => {
+    if (!search.trim()) return articles
+    const q = search.toLowerCase()
+    return articles.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.summary.toLowerCase().includes(q) ||
+        a.source_name.toLowerCase().includes(q) ||
+        a.tags.toLowerCase().includes(q),
+    )
+  }, [articles, search])
+
+  // Search across all statuses when a search term is typed
+  const [searchResults, setSearchResults] = useState<Article[] | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  useEffect(() => {
+    if (!search.trim() || activeTab === 'sources') {
+      setSearchResults(null)
+      return
+    }
+    const timer = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const results = await searchArticles(search)
+        setSearchResults(results)
+      } catch {
+        setSearchResults(null)
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [search, activeTab])
+
+  const displayedArticles = searchResults !== null ? searchResults : filteredArticles
+  const isSearchMode = searchResults !== null
+
+  function tabCount(tab: ActiveTab): number {
+    if (tab === 'sources') return sources.length
+    const s = TAB_STATUS[tab as Exclude<ActiveTab, 'sources'>]
+    return (summary.byStatus as Record<string, number>)[s] ?? 0
+  }
+
+  const sectionTitle = activeTab === 'sources'
+    ? 'News Sources'
+    : activeTab === 'inbox'
+    ? 'Inbox'
+    : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)
+
   return (
-    <main className="page">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">news.lihor.ro · private</p>
-          <h1>Ioachim's News Inbox</h1>
-          <p className="lead">Python, AI/LLM, agents, infrastructure, trending stories, and repositories — collected by Clau for reading history and later summaries.</p>
+    <div className="page">
+      <header className="topbar">
+        <div className="topbar-inner">
+          <div className="topbar-brand">
+            <div className="topbar-title">Ioachim's Inbox</div>
+            <div className="topbar-sub">news.lihor.ro · private</div>
+          </div>
+
+          {activeTab !== 'sources' && (
+            <div className="topbar-search">
+              <span className="topbar-search-icon" aria-hidden>⌕</span>
+              <input
+                type="search"
+                placeholder="Search all articles…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search articles"
+              />
+            </div>
+          )}
+
+          <button className="fetch-btn" onClick={runIngest} disabled={ingesting} aria-label="Fetch feeds now">
+            <span className="fetch-btn-icon">{ingesting ? '⟳' : '↻'}</span>
+            <span className="fetch-btn-label">{ingesting ? 'Fetching…' : 'Fetch now'}</span>
+          </button>
         </div>
-        <button className="primary" onClick={runIngest} disabled={ingesting}>{ingesting ? 'Fetching…' : 'Fetch now'}</button>
       </header>
 
-      <section className="stats">
-        {statuses.filter((item) => item !== 'all').map((item) => (
-          <article className="stat card" key={item}>
-            <span>{statusLabel(item)}</span>
-            <strong>{summary.byStatus[item] ?? 0}</strong>
-          </article>
+      <nav className="tabs-wrap" aria-label="Sections">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            className={`tab${activeTab === tab.id ? ' active' : ''}`}
+            onClick={() => { setActiveTab(tab.id); setSearch('') }}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+          >
+            {tab.label}
+            <span className="tab-count">{tabCount(tab.id)}</span>
+          </button>
         ))}
-      </section>
+      </nav>
 
-      <section className="toolbar card">
-        <div>
-          <label>Status</label>
-          <select value={status} onChange={(event) => setStatus(event.target.value as ArticleStatus | 'all')}>
-            {statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}
-          </select>
+      {activeTab !== 'sources' && (
+        <div className="filter-bar" role="toolbar" aria-label="Category filter">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              className={`filter-pill${category === cat ? ' active' : ''}`}
+              onClick={() => setCategory(cat)}
+              aria-pressed={category === cat}
+            >
+              {cat === 'all' ? 'All' : cat.replace(/-/g, ' ')}
+            </button>
+          ))}
+          <span className="filter-meta">
+            {loading || searchLoading
+              ? 'Loading…'
+              : isSearchMode
+              ? `${displayedArticles.length} result${displayedArticles.length !== 1 ? 's' : ''} across all tabs`
+              : `${filteredArticles.length} article${filteredArticles.length !== 1 ? 's' : ''}`}
+          </span>
         </div>
-        <div>
-          <label>Category</label>
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
+      )}
+
+      {message && (
+        <div className={`message-banner ${message.kind}`} role="status">
+          <span>{message.text}</span>
+          <button className="dismiss" onClick={() => setMessage(null)} aria-label="Dismiss">×</button>
         </div>
-        <div className="toolbarMeta">{loading ? 'Loading…' : `${articles.length} item(s)`}</div>
-      </section>
+      )}
 
-      {message ? <p className="message">{message}</p> : null}
-
-      <section>
-        <h2>{category === 'repositories' ? 'Trending repositories' : 'Inbox'}</h2>
-        <div className="articleGrid">
-          {articles.map((article) => <ArticleCard key={article.id} article={article} onStatus={changeStatus} />)}
-          {!loading && articles.length === 0 ? <p className="empty">No articles for this filter yet. Run ingestion or wait for the cron job.</p> : null}
-        </div>
-      </section>
-
-      <SourcesPanel sources={sources} />
-    </main>
+      <main>
+        {activeTab === 'sources' ? (
+          <>
+            <div className="section-header">
+              <h2 className="section-title">{sectionTitle}</h2>
+            </div>
+            <SourcesPanel sources={sources} />
+          </>
+        ) : (
+          <>
+            <div className="section-header">
+              <h2 className="section-title">
+                {isSearchMode ? `Search: "${search}"` : sectionTitle}
+              </h2>
+            </div>
+            <div className="articles-grid">
+              {(loading && !isSearchMode) || searchLoading ? (
+                Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)
+              ) : displayedArticles.length === 0 ? (
+                <div className="empty-state">
+                  <p>
+                    {search
+                      ? `No results for "${search}". Try different keywords.`
+                      : 'Nothing here yet. Click Fetch now or wait for the cron job.'}
+                  </p>
+                </div>
+              ) : (
+                displayedArticles.map((a) => (
+                  <ArticleCard key={a.id} article={a} onStatus={changeStatus} />
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </main>
+    </div>
   )
 }
-
-export default App

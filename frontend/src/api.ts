@@ -11,12 +11,18 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export async function fetchArticles(status?: ArticleStatus | 'all', category?: string): Promise<Article[]> {
+export async function fetchArticles(status?: ArticleStatus, category?: string): Promise<Article[]> {
   const params = new URLSearchParams()
-  if (status && status !== 'all') params.set('status', status)
-  if (category && category !== 'all') params.set('category', category)
-  const suffix = params.toString() ? `?${params.toString()}` : ''
+  if (status) params.set('status', status)
+  if (category) params.set('category', category)
+  const suffix = params.size ? `?${params}` : ''
   const data = await requestJson<{ items: Article[] }>(`/api/articles${suffix}`)
+  return data.items
+}
+
+export async function searchArticles(q: string, limit = 50): Promise<Article[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) })
+  const data = await requestJson<{ items: Article[] }>(`/api/search?${params}`)
   return data.items
 }
 

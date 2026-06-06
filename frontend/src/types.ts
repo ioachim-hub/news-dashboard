@@ -14,6 +14,10 @@ export interface Article {
   summary: string
   reason: string
   tags: string
+  read_at?: string | null
+  saved_at?: string | null
+  skipped_at?: string | null
+  archived_at?: string | null
 }
 
 export interface Source {
@@ -25,6 +29,10 @@ export interface Source {
   priority: number
   enabled: number
   last_checked_at?: string | null
+  last_success_at?: string | null
+  last_error?: string | null
+  last_fetched_count?: number
+  last_inserted_count?: number
 }
 
 export interface Summary {

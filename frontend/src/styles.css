@@ -627,6 +627,10 @@ ul { list-style: none; }
 .badge.kind-github   { background: #f0f9ff; color: #0c4a6e; }
 .badge.kind-trending { background: #fff7ed; color: #9a3412; }
 .badge.kind-scraped  { background: #fdf4ff; color: #6b21a8; }
+.badge.confidence-badge { text-transform: lowercase; }
+.badge.confidence-high   { background: var(--s-read-bg); color: var(--s-read-fg); }
+.badge.confidence-medium { background: var(--s-new-bg); color: var(--s-new-fg); }
+.badge.confidence-low    { background: var(--s-skipped-bg); color: var(--s-skipped-fg); }
 
 /* ===== SOURCES LAYOUT — #28 bottom sheet on mobile / sidebar on desktop ===== */
 

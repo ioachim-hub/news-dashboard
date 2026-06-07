@@ -141,6 +141,21 @@ function readTime(summary: string): number | null {
   return Math.max(1, Math.round(words / 200))
 }
 
+function articleConfidence(article: Article): number {
+  const score = Math.max(0, Math.min(100, Number(article.importance_score) || 0))
+  if (article.status === 'read') return 100
+  if (article.status === 'saved') return Math.max(score, 90)
+  if (article.status === 'skipped') return Math.min(score, 20)
+  if (article.status === 'archived') return Math.min(score, 10)
+  return score
+}
+
+function confidenceTier(score: number): 'high' | 'medium' | 'low' {
+  if (score >= 75) return 'high'
+  if (score >= 40) return 'medium'
+  return 'low'
+}
+
 // ===== Dark mode bootstrap (runs before React renders) =====
 function initTheme() {
   const stored = localStorage.getItem('theme')
@@ -170,6 +185,8 @@ function ArticleCard({ article, onStatus, focused, cardRef, selected, onToggleSe
   const date = article.published_at ?? article.discovered_at
   const actions = STATUS_NEXT[article.status] ?? ['read', 'saved', 'skipped']
   const rt = readTime(article.summary)
+  const confidence = articleConfidence(article)
+  const confidenceLevel = confidenceTier(confidence)
 
   async function handle(status: ArticleStatus) {
     setPending(status)
@@ -205,6 +222,7 @@ function ArticleCard({ article, onStatus, focused, cardRef, selected, onToggleSe
             {article.category.replace(/-/g, ' ')}
           </span>
           <span className={`badge status-${article.status}`}>{article.status}</span>
+          <span className={`badge confidence-badge confidence-${confidenceLevel}`}>confidence {confidence}%</span>
         </div>
         <span className="card-date">
           {rt !== null && <span className="card-read-time">~{rt} min</span>}

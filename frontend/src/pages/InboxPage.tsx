@@ -1,4 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Inbox } from 'lucide-react';
 import { ArticleRow } from '@/components/article/ArticleRow';
@@ -8,6 +9,7 @@ import { useArticleListNav } from '@/hooks/useArticleListNav';
 import { useTriageMutations } from '@/hooks/useTriageMutations';
 import { fetchTriageArticles } from '@/api/workflowApi';
 import { ARTICLES_KEY } from '@/hooks/useTriageMutations';
+import { useFocusedArticle } from '@/contexts/focusedArticle';
 
 export function InboxPage() {
   const navigate = useNavigate();
@@ -21,6 +23,11 @@ export function InboxPage() {
 
   const mutations = useTriageMutations();
   const { focused } = useArticleListNav(articles, (a) => navigate(`/a/${a.id}`), mutations);
+  const { set: setFocused } = useFocusedArticle();
+  useEffect(() => {
+    setFocused(articles[focused] ?? null);
+    return () => setFocused(null);
+  }, [focused, articles, setFocused]);
 
   return (
     <div>

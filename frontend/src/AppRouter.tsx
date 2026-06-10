@@ -1,4 +1,5 @@
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { FocusedArticleProvider } from './contexts/focusedArticle';
 import { AppShell } from './components/AppShell';
 import { InboxPage } from './pages/InboxPage';
 import { LaterPage } from './pages/LaterPage';
@@ -78,5 +79,9 @@ const router = createBrowserRouter([
 ]);
 
 export function AppRouter() {
-  return <RouterProvider router={router} />;
+  return (
+    <FocusedArticleProvider>
+      <RouterProvider router={router} />
+    </FocusedArticleProvider>
+  );
 }

@@ -37,7 +37,7 @@ export function useArticleListNav(
         mutations.sendLater(cur);
       } else if (e.key === 's' && cur) {
         mutations.toggleStar(cur);
-      } else if (e.key === 'x' && cur) {
+      } else if (e.key === 'x' && cur && !cur.starred) {
         mutations.setState(cur, 'skipped', 'Skipped');
       } else if (e.key === 'e' && cur) {
         mutations.setState(cur, 'archived', 'Archived');

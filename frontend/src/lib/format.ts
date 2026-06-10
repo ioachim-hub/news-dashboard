@@ -26,3 +26,37 @@ export function formatDate(iso: string): string {
 export function signalLabel(s: 'high' | 'mid' | 'low') {
   return s === 'high' ? 'High signal' : s === 'mid' ? 'Maybe' : 'Low signal';
 }
+
+export function formatDateTime(value?: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+export function formatDuration(ms?: number | null): string {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+export function formatInteger(value: number): string {
+  return new Intl.NumberFormat().format(value);
+}
+
+export function relativeCountdown(isoStr: string | null): string {
+  if (!isoStr) return '—';
+  const ms = new Date(isoStr).getTime() - Date.now();
+  if (ms <= 0) return 'now';
+  const totalSecs = Math.floor(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}

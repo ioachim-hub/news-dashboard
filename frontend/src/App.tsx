@@ -1,24 +1,17 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './styles.css';
 import {
   askAI,
   fetchArticlesOverTime,
   fetchArticles,
-  fetchIngestRunSources,
-  fetchIngestRuns,
-  fetchSchedulerStatus,
   fetchSourcesVolume,
   fetchStatsOverview,
   fetchSummary,
   ingestNow,
-  pauseScheduler,
-  resumeScheduler,
   searchArticles,
-  setSchedulerInterval,
   updateArticleStatus,
 } from './api';
-import type { SchedulerStatus } from './api';
 import type {
   Article,
   ArticleStatus,
@@ -27,8 +20,6 @@ import type {
   SourceVolumePoint,
   StatsOverview,
   Summary,
-  IngestRun,
-  IngestRunSource,
 } from './types';
 
 type ActiveTab = 'inbox' | 'saved' | 'read' | 'skipped' | 'archived' | 'sources' | 'scheduler';
@@ -100,18 +91,6 @@ function relativeTime(value?: string | null): string {
   if (d < 7) return `${d}d ago`;
   if (d < 30) return `${Math.floor(d / 7)}w ago`;
   return date.toLocaleDateString();
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function formatDuration(ms?: number | null): string {
@@ -449,14 +428,6 @@ function AskPanel({ result, loading }: AskPanelProps) {
 
 // ===== SchedulerTab =====
 
-const INTERVAL_PRESETS = [
-  { label: '15m', value: 15 },
-  { label: '30m', value: 30 },
-  { label: '1h', value: 60 },
-  { label: '3h', value: 180 },
-  { label: '6h', value: 360 },
-];
-
 type StatsRangeId = 'today' | 'last7' | 'last30' | 'last90';
 
 const STATS_RANGE_OPTIONS: { id: StatsRangeId; label: string }[] = [
@@ -512,267 +483,7 @@ function formatSourceLabel(value: string): string {
   return value.length > 18 ? `${value.slice(0, 17)}…` : value;
 }
 
-function relativeCountdown(isoStr: string | null): string {
-  if (!isoStr) return '—';
-  const ms = new Date(isoStr).getTime() - Date.now();
-  if (ms <= 0) return 'now';
-  const totalSecs = Math.floor(ms / 1000);
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const s = totalSecs % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-const RUN_HISTORY_PER_PAGE = 10;
-
-function RunHistoryTable({ refreshToken }: { refreshToken: number }) {
-  const [runs, setRuns] = useState<IngestRun[]>([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
-  const [sourcesByRun, setSourcesByRun] = useState<Record<number, IngestRunSource[]>>({});
-  const [loadingSources, setLoadingSources] = useState<number | null>(null);
-
-  async function loadRuns(nextPage = page) {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchIngestRuns(nextPage, RUN_HISTORY_PER_PAGE);
-      setRuns(data.items);
-      setTotal(data.total);
-      setHasMore(data.has_more);
-      setPage(data.page);
-      setExpandedRunId(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load run history');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadRuns(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, refreshToken]);
-
-  async function toggleRun(runId: number) {
-    if (expandedRunId === runId) {
-      setExpandedRunId(null);
-      return;
-    }
-    setExpandedRunId(runId);
-    if (sourcesByRun[runId]) return;
-    setLoadingSources(runId);
-    try {
-      const items = await fetchIngestRunSources(runId);
-      setSourcesByRun((prev) => ({ ...prev, [runId]: items }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load run details');
-    } finally {
-      setLoadingSources(null);
-    }
-  }
-
-  const rangeStart = total === 0 ? 0 : (page - 1) * RUN_HISTORY_PER_PAGE + 1;
-  const rangeEnd = Math.min(page * RUN_HISTORY_PER_PAGE, total);
-
-  return (
-    <div className="run-history">
-      <div className="run-history-header">
-        <h3 className="scheduler-card-title">Run History</h3>
-        <button
-          className="run-history-refresh"
-          onClick={() => void loadRuns(page)}
-          disabled={loading}
-        >
-          ↻
-        </button>
-      </div>
-
-      {error && <div className="run-history-error">{error}</div>}
-
-      {loading ? (
-        <div className="run-history-loading">
-          <span className="skeleton sk-line" />
-          <span className="skeleton sk-line" style={{ width: '72%' }} />
-        </div>
-      ) : runs.length === 0 ? (
-        <div className="run-history-empty">No ingest runs recorded yet.</div>
-      ) : (
-        <>
-          <div className="run-history-table-wrap">
-            <table className="run-history-table">
-              <thead>
-                <tr>
-                  <th aria-label="Expand run" />
-                  <th>Started at</th>
-                  <th>Duration</th>
-                  <th>Sources run</th>
-                  <th>New articles</th>
-                  <th>Errors</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => {
-                  const expanded = expandedRunId === run.id;
-                  const sourceRows = sourcesByRun[run.id] ?? [];
-                  return (
-                    <Fragment key={run.id}>
-                      <tr key={run.id} className={expanded ? 'expanded' : undefined}>
-                        <td>
-                          <button
-                            className="run-expand-btn"
-                            onClick={() => void toggleRun(run.id)}
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? 'Collapse' : 'Expand'} run ${run.id}`}
-                          >
-                            {expanded ? '⌄' : '›'}
-                          </button>
-                        </td>
-                        <td>
-                          <span className="run-started">{formatDateTime(run.started_at)}</span>
-                          <span className="run-relative">{relativeTime(run.started_at)}</span>
-                        </td>
-                        <td>{formatDuration(run.duration_ms)}</td>
-                        <td>{run.sources_run}</td>
-                        <td>{run.total_new}</td>
-                        <td>
-                          <span className={run.total_errors > 0 ? 'run-error-count' : undefined}>
-                            {run.total_errors}
-                          </span>
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr key={`${run.id}-sources`} className="run-source-row">
-                          <td colSpan={6}>
-                            {loadingSources === run.id ? (
-                              <div className="run-source-loading">Loading source breakdown…</div>
-                            ) : sourceRows.length === 0 ? (
-                              <div className="run-source-empty">
-                                No per-source rows recorded for this run.
-                              </div>
-                            ) : (
-                              <table className="run-source-table">
-                                <thead>
-                                  <tr>
-                                    <th>Source name</th>
-                                    <th>Articles found</th>
-                                    <th>New</th>
-                                    <th>Duplicates</th>
-                                    <th>Error message</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {sourceRows.map((source) => (
-                                    <tr key={source.id}>
-                                      <td>{source.source_name}</td>
-                                      <td>{source.articles_found}</td>
-                                      <td>{source.articles_new}</td>
-                                      <td>{source.duplicates}</td>
-                                      <td
-                                        className={
-                                          source.error_message
-                                            ? 'run-source-error'
-                                            : 'run-source-muted'
-                                        }
-                                      >
-                                        {source.error_message ?? '—'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="run-history-pagination">
-            <span>
-              {rangeStart}-{rangeEnd} of {total}
-            </span>
-            <div className="run-history-page-buttons">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={loading || page === 1}
-              >
-                ‹
-              </button>
-              <button onClick={() => setPage((p) => p + 1)} disabled={loading || !hasMore}>
-                ›
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-interface SchedulerTabProps {
-  onFetchNow: () => Promise<void>;
-  ingesting: boolean;
-}
-
-function IngestTerminal() {
-  const [lines, setLines] = useState<string[]>([]);
-  const [connected, setConnected] = useState(false);
-  const terminalRef = useRef<HTMLPreElement | null>(null);
-
-  useEffect(() => {
-    const events = new EventSource('/api/ingest/stream');
-
-    events.onopen = () => setConnected(true);
-    events.onerror = () => setConnected(false);
-    events.addEventListener('reset', () => setLines([]));
-    events.addEventListener('line', (event) => {
-      setLines((prev) => [...prev, String(event.data)]);
-    });
-
-    return () => events.close();
-  }, []);
-
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (terminal) {
-      terminal.scrollTop = terminal.scrollHeight;
-    }
-  }, [lines]);
-
-  return (
-    <div className="scheduler-card scheduler-terminal-card">
-      <div className="scheduler-terminal-header">
-        <h3 className="scheduler-card-title">Ingest Terminal</h3>
-        <span className={`scheduler-terminal-status${connected ? ' connected' : ''}`}>
-          {connected ? 'Live' : 'Connecting'}
-        </span>
-      </div>
-      <pre className="scheduler-terminal" ref={terminalRef} aria-live="polite">
-        {lines.length ? lines.join('\n') : 'Waiting for ingest output...'}
-      </pre>
-    </div>
-  );
-}
-
-function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
-  const [status, setStatus] = useState<SchedulerStatus | null>(null);
-  const [loadingStatus, setLoadingStatus] = useState(true);
-  const [customMinutes, setCustomMinutes] = useState('');
-  const [actionPending, setActionPending] = useState(false);
-  const [tabMessage, setTabMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(
-    null
-  );
-  const [countdown, setCountdown] = useState<string>('—');
+function SchedulerTab() {
   const [rangeId, setRangeId] = useState<StatsRangeId>('last7');
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [articlesSeries, setArticlesSeries] = useState<ArticlesOverTimePoint[]>([]);
@@ -790,21 +501,6 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
     [articlesSeries, rangeId]
   );
   const topSourceVolumes = useMemo(() => sourceVolumes.slice(0, 12), [sourceVolumes]);
-  const [historyRefresh, setHistoryRefresh] = useState(0);
-
-  async function loadStatus() {
-    try {
-      const s = await fetchSchedulerStatus();
-      setStatus(s);
-    } catch (err) {
-      setTabMessage({
-        text: err instanceof Error ? err.message : 'Failed to load scheduler status',
-        kind: 'error',
-      });
-    } finally {
-      setLoadingStatus(false);
-    }
-  }
 
   async function loadStats() {
     setStatsLoading(true);
@@ -826,110 +522,12 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
   }
 
   useEffect(() => {
-    void loadStatus();
-  }, []);
-
-  useEffect(() => {
     void loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadStats identity changes every render; re-fetch only on range change
   }, [selectedRange.from, selectedRange.to]);
 
-  useEffect(() => {
-    if (!status) return;
-    if (status.paused) {
-      setCountdown('Paused');
-      return;
-    }
-    setCountdown(relativeCountdown(status.next_run_at));
-    const timer = setInterval(() => {
-      setCountdown(relativeCountdown(status.next_run_at));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [status]);
-
-  async function handlePreset(minutes: number) {
-    setActionPending(true);
-    try {
-      const res = await setSchedulerInterval(minutes);
-      setStatus((prev) =>
-        prev ? { ...prev, interval_minutes: minutes, next_run_at: res.next_run_at } : prev
-      );
-      setTabMessage({ text: `Interval set to ${minutes} minutes.`, kind: 'success' });
-    } catch (err) {
-      setTabMessage({
-        text: err instanceof Error ? err.message : 'Failed to set interval',
-        kind: 'error',
-      });
-    } finally {
-      setActionPending(false);
-    }
-  }
-
-  async function handleCustomSave() {
-    const mins = parseInt(customMinutes, 10);
-    if (!mins || mins < 1) {
-      setTabMessage({ text: 'Enter a valid number of minutes (≥ 1).', kind: 'error' });
-      return;
-    }
-    await handlePreset(mins);
-    setCustomMinutes('');
-  }
-
-  async function handleTogglePause() {
-    if (!status) return;
-    setActionPending(true);
-    try {
-      if (status.paused) {
-        const res = await resumeScheduler();
-        setStatus((prev) =>
-          prev ? { ...prev, paused: false, next_run_at: res.next_run_at ?? prev.next_run_at } : prev
-        );
-        setTabMessage({ text: 'Scheduler resumed.', kind: 'success' });
-      } else {
-        await pauseScheduler();
-        setStatus((prev) => (prev ? { ...prev, paused: true, next_run_at: null } : prev));
-        setTabMessage({ text: 'Scheduler paused.', kind: 'success' });
-      }
-    } catch (err) {
-      setTabMessage({
-        text: err instanceof Error ? err.message : 'Failed to toggle pause',
-        kind: 'error',
-      });
-    } finally {
-      setActionPending(false);
-    }
-  }
-
-  async function handleFetchNow() {
-    await onFetchNow();
-    await loadStats();
-    setHistoryRefresh((value) => value + 1);
-  }
-
-  if (loadingStatus) {
-    return (
-      <div className="scheduler-panel">
-        <div className="skeleton sk-line" style={{ width: '60%', marginBottom: 12 }} />
-        <div className="skeleton sk-line" style={{ width: '40%' }} />
-      </div>
-    );
-  }
-
   return (
     <div className="scheduler-panel">
-      {tabMessage && (
-        <div
-          className={`message-banner ${tabMessage.kind}`}
-          role="status"
-          style={{ marginBottom: 16 }}
-        >
-          <span>{tabMessage.text}</span>
-          <button className="dismiss" onClick={() => setTabMessage(null)} aria-label="Dismiss">
-            ×
-          </button>
-        </div>
-      )}
-
       <div className="stats-dashboard">
         <div className="stats-toolbar">
           <div>
@@ -1069,94 +667,6 @@ function SchedulerTab({ onFetchNow, ingesting }: SchedulerTabProps) {
           </div>
         </div>
       </div>
-
-      <div className="scheduler-card">
-        <h3 className="scheduler-card-title">Status</h3>
-        <div className="scheduler-status-row">
-          <span className={`scheduler-status-badge${status?.paused ? ' paused' : ' running'}`}>
-            {status?.paused ? '⏸ Paused' : '▶ Running'}
-          </span>
-          <span className="scheduler-status-detail">
-            {status?.paused ? 'No runs scheduled' : `Next run in ${countdown}`}
-          </span>
-        </div>
-        <div className="scheduler-status-row">
-          <span className="scheduler-label">Interval:</span>
-          <span className="scheduler-value">{status?.interval_minutes ?? '—'} minutes</span>
-        </div>
-        {!status?.paused && status?.next_run_at && (
-          <div className="scheduler-status-row">
-            <span className="scheduler-label">Next run at:</span>
-            <span className="scheduler-value scheduler-value--muted">
-              {new Date(status.next_run_at).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="scheduler-card">
-        <h3 className="scheduler-card-title">Change Interval</h3>
-        <div className="scheduler-presets">
-          {INTERVAL_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              className={`scheduler-preset-btn${status?.interval_minutes === p.value ? ' active' : ''}`}
-              onClick={() => void handlePreset(p.value)}
-              disabled={actionPending}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="scheduler-custom-row">
-          <input
-            type="number"
-            className="scheduler-custom-input"
-            min={1}
-            placeholder="Custom minutes…"
-            value={customMinutes}
-            onChange={(e) => setCustomMinutes(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleCustomSave();
-            }}
-            disabled={actionPending}
-            aria-label="Custom interval in minutes"
-          />
-          <button
-            className="scheduler-save-btn"
-            onClick={() => void handleCustomSave()}
-            disabled={actionPending || !customMinutes}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-
-      <div className="scheduler-card">
-        <h3 className="scheduler-card-title">Controls</h3>
-        <div className="scheduler-controls-row">
-          <button
-            className={`scheduler-toggle-btn${status?.paused ? ' resume' : ' pause'}`}
-            onClick={() => void handleTogglePause()}
-            disabled={actionPending}
-          >
-            {status?.paused ? '▶ Resume' : '⏸ Pause'}
-          </button>
-          <button
-            className="scheduler-fetch-btn"
-            onClick={() => void handleFetchNow()}
-            disabled={ingesting || actionPending}
-          >
-            {ingesting ? '⟳ Fetching…' : '↻ Fetch now'}
-          </button>
-        </div>
-      </div>
-
-      <IngestTerminal />
-      <RunHistoryTable refreshToken={historyRefresh} />
     </div>
   );
 }
@@ -1672,7 +1182,7 @@ export default function App({
             <div className="section-header">
               <h2 className="section-title">{sectionTitle}</h2>
             </div>
-            <SchedulerTab onFetchNow={runIngest} ingesting={ingesting} />
+            <SchedulerTab />
           </>
         ) : (
           <>

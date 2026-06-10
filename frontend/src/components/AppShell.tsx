@@ -164,7 +164,14 @@ export function AppShell() {
     return (
       <>
         <Outlet />
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          onShortcuts={() => {
+            setPaletteOpen(false);
+            setShortcutsOpen(true);
+          }}
+        />
         <ShortcutOverlay open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       </>
     );
@@ -269,10 +276,6 @@ export function AppShell() {
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        onNavigate={(to) => {
-          setPaletteOpen(false);
-          navigate(to);
-        }}
         onShortcuts={() => {
           setPaletteOpen(false);
           setShortcutsOpen(true);

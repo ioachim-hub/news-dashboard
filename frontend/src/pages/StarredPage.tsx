@@ -10,6 +10,7 @@ import { useTriageMutations } from '@/hooks/useTriageMutations';
 import { fetchTriageArticles } from '@/api/workflowApi';
 import { ARTICLES_KEY } from '@/hooks/useTriageMutations';
 import { useFocusedArticle } from '@/contexts/focusedArticle';
+import { setReaderList } from '@/lib/readerList';
 
 export function StarredPage() {
   const navigate = useNavigate();
@@ -25,6 +26,10 @@ export function StarredPage() {
   const list = [...articles].sort(
     (a, b) => +new Date(b.starred_at ?? b.publishedAt) - +new Date(a.starred_at ?? a.publishedAt)
   );
+
+  useEffect(() => {
+    setReaderList(list.map((a) => a.id));
+  }, [list]);
 
   const mutations = useTriageMutations();
   const { focused } = useArticleListNav(list, (a) => navigate(`/a/${a.id}`), mutations);

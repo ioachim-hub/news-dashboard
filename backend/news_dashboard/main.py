@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .body_fetch import fetch_and_cache_body, get_article
 from .db import connect, describe_database, init_db, row_to_dict
 from .ingest import ingest_all, list_articles, search_articles, set_article_status, sync_sources
 from .ingest_events import stream_ingest_events
@@ -119,6 +120,23 @@ def search(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
     return {"items": search_articles(q=q.strip(), limit=limit)}
+
+
+@app.get("/api/articles/{article_id}")
+def get_article_by_id(article_id: int) -> dict[str, Any]:
+    article = get_article(article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="article not found")
+    return article
+
+
+@app.post("/api/articles/{article_id}/body")
+def fetch_article_body(article_id: int) -> dict[str, Any]:
+    """Fetch and cache full body text for an article. Idempotent (cache hit returns fast)."""
+    article = fetch_and_cache_body(article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="article not found")
+    return article
 
 
 @app.patch("/api/articles/{article_id}/status")

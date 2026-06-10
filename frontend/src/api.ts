@@ -50,6 +50,14 @@ export async function searchArticles(q: string, limit = 50): Promise<Article[]> 
   return data.items;
 }
 
+export async function fetchArticle(id: number | string): Promise<Article> {
+  return requestJson<Article>(`/api/articles/${id}`);
+}
+
+export async function fetchArticleBody(id: number | string): Promise<Article> {
+  return requestJson<Article>(`/api/articles/${id}/body`, { method: 'POST' });
+}
+
 export async function fetchSources(): Promise<Source[]> {
   const data = await requestJson<{ items: Source[] }>('/api/sources');
   return data.items;

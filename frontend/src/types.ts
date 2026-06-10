@@ -20,6 +20,8 @@ export interface Article {
   archived_at?: string | null;
   also_from?: string[];
   canonical_id?: number | null;
+  body?: string | null;
+  body_status?: 'ok' | 'missing' | 'error';
 }
 
 export interface Source {

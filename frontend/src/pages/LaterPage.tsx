@@ -9,6 +9,7 @@ import { useTriageMutations } from '@/hooks/useTriageMutations';
 import { fetchTriageArticles } from '@/api/workflowApi';
 import { ARTICLES_KEY } from '@/hooks/useTriageMutations';
 import { useFocusedArticle } from '@/contexts/focusedArticle';
+import { setReaderList } from '@/lib/readerList';
 
 export function LaterPage() {
   const navigate = useNavigate();
@@ -22,6 +23,10 @@ export function LaterPage() {
   const list = [...articles].sort(
     (a, b) => +new Date(a.later_until ?? 0) - +new Date(b.later_until ?? 0)
   );
+
+  useEffect(() => {
+    setReaderList(list.map((a) => a.id));
+  }, [list]);
 
   const mutations = useTriageMutations();
   const { focused } = useArticleListNav(list, (a) => navigate(`/a/${a.id}`), mutations);

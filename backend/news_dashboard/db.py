@@ -123,6 +123,8 @@ SQLITE_COLUMN_MIGRATIONS = [
     ("sources", "last_inserted_count", "INTEGER NOT NULL DEFAULT 0"),
     ("articles", "canonical_id", "INTEGER REFERENCES articles(id)"),
     ("articles", "embedding", "BLOB"),
+    ("articles", "body", "TEXT"),
+    ("articles", "body_status", "TEXT NOT NULL DEFAULT 'missing'"),
 ]
 
 POSTGRES_SCHEMA = [
@@ -219,6 +221,9 @@ POSTGRES_SCHEMA = [
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS canonical_id BIGINT REFERENCES articles(id)",
     # AI Q&A embeddings for saved/read article retrieval
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding BYTEA",
+    # Full body text extracted on first reader open (#79)
+    "ALTER TABLE articles ADD COLUMN IF NOT EXISTS body TEXT",
+    "ALTER TABLE articles ADD COLUMN IF NOT EXISTS body_status TEXT NOT NULL DEFAULT 'missing'",
     # Ingest run telemetry from issue #50. Stats endpoints read these tables.
     """
     CREATE INDEX IF NOT EXISTS idx_ingest_run_sources_source_run

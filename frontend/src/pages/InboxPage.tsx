@@ -10,6 +10,7 @@ import { useTriageMutations } from '@/hooks/useTriageMutations';
 import { fetchTriageArticles } from '@/api/workflowApi';
 import { ARTICLES_KEY } from '@/hooks/useTriageMutations';
 import { useFocusedArticle } from '@/contexts/focusedArticle';
+import { setReaderList } from '@/lib/readerList';
 
 export function InboxPage() {
   const navigate = useNavigate();
@@ -20,6 +21,10 @@ export function InboxPage() {
     queryKey: [ARTICLES_KEY, 'today', category],
     queryFn: () => fetchTriageArticles('today', category),
   });
+
+  useEffect(() => {
+    setReaderList(articles.map((a) => a.id));
+  }, [articles]);
 
   const mutations = useTriageMutations();
   const { focused } = useArticleListNav(articles, (a) => navigate(`/a/${a.id}`), mutations);

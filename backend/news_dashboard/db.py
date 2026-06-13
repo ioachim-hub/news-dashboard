@@ -283,7 +283,62 @@ POSTGRES_SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_ingest_runs_started ON ingest_runs(started_at)",
     "CREATE INDEX IF NOT EXISTS idx_ingest_run_sources_run ON ingest_run_sources(run_id)",
+    # #101 Saved briefings — durable AI briefing artifacts
+    """
+    CREATE TABLE IF NOT EXISTS briefings (
+      id          SERIAL PRIMARY KEY,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      scope       TEXT NOT NULL DEFAULT 'since_last_briefing',
+      since_at    TIMESTAMPTZ,
+      until_at    TIMESTAMPTZ,
+      status      TEXT NOT NULL DEFAULT 'complete',
+      title       TEXT,
+      summary     TEXT,
+      content     JSONB,
+      model       TEXT,
+      error       TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_briefings_created ON briefings(created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS briefing_articles (
+      briefing_id  INTEGER NOT NULL REFERENCES briefings(id) ON DELETE CASCADE,
+      article_id   BIGINT  NOT NULL REFERENCES articles(id),
+      section_index   INTEGER,
+      citation_index  INTEGER,
+      PRIMARY KEY (briefing_id, article_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_briefing_articles_briefing ON briefing_articles(briefing_id)",
 ]
+
+# SQLite-compatible briefing tables (TEXT instead of JSONB/TIMESTAMPTZ, for tests only)
+SQLITE_BRIEFINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS briefings (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  scope      TEXT NOT NULL DEFAULT 'since_last_briefing',
+  since_at   TEXT,
+  until_at   TEXT,
+  status     TEXT NOT NULL DEFAULT 'complete',
+  title      TEXT,
+  summary    TEXT,
+  content    TEXT,
+  model      TEXT,
+  error      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS briefing_articles (
+  briefing_id   INTEGER NOT NULL REFERENCES briefings(id),
+  article_id    INTEGER NOT NULL REFERENCES articles(id),
+  section_index   INTEGER,
+  citation_index  INTEGER,
+  PRIMARY KEY (briefing_id, article_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_briefings_created ON briefings(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_briefing_articles_briefing ON briefing_articles(briefing_id);
+"""
 
 
 def _validate_postgres_url(url: str) -> str:
@@ -417,6 +472,7 @@ def init_db(db_path: Path | None = None, database_url: str | None = None) -> Non
         return
     with connect(db_path, database_url) as conn:
         conn.executescript(SQLITE_SCHEMA)
+        conn.executescript(SQLITE_BRIEFINGS_SCHEMA)
         _apply_sqlite_column_migrations(conn)
         _apply_sqlite_data_migrations(conn)
         _build_fts_index(conn)

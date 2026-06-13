@@ -114,11 +114,6 @@ export function useTriageMutations() {
     },
   });
 
-  function restore(article: WorkflowArticle) {
-    restoreToCache(queryClient, article);
-    void queryClient.invalidateQueries({ queryKey: ['summary'] });
-  }
-
   function setState(article: WorkflowArticle, newState: WorkflowState, label: string) {
     if (newState === 'skipped' && article.starred) {
       toast.error("Starred articles can't be skipped");
@@ -127,7 +122,18 @@ export function useTriageMutations() {
     const snap = snapshot(article);
     setStateMutation.mutate({ article, newState });
     toast(label, {
-      action: { label: 'Undo', onClick: () => restore(snap.article) },
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          restoreToCache(queryClient, snap.article);
+          void patchArticleState(snap.article.id, snap.article.state, snap.article.starred).then(
+            () => {
+              void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
+              void queryClient.invalidateQueries({ queryKey: ['summary'] });
+            }
+          );
+        },
+      },
     });
   }
 
@@ -136,7 +142,16 @@ export function useTriageMutations() {
     const snap = snapshot(article);
     starMutation.mutate({ article, starred: nextStarred });
     toast(nextStarred ? 'Starred' : 'Unstarred', {
-      action: { label: 'Undo', onClick: () => restore(snap.article) },
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          restoreToCache(queryClient, snap.article);
+          void patchArticleStar(snap.article.id, snap.article.starred).then(() => {
+            void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
+            void queryClient.invalidateQueries({ queryKey: ['summary'] });
+          });
+        },
+      },
     });
   }
 
@@ -144,7 +159,18 @@ export function useTriageMutations() {
     const snap = snapshot(article);
     sendLaterMutation.mutate({ article, days });
     toast('Snoozed to tomorrow', {
-      action: { label: 'Undo', onClick: () => restore(snap.article) },
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          restoreToCache(queryClient, snap.article);
+          void patchArticleState(snap.article.id, snap.article.state, snap.article.starred).then(
+            () => {
+              void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
+              void queryClient.invalidateQueries({ queryKey: ['summary'] });
+            }
+          );
+        },
+      },
     });
   }
 

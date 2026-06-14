@@ -9,3 +9,4 @@ tsconfig.tsbuildinfo
 .DS_Store
 data/*.db
 data/*.db-*
+.worktrees/

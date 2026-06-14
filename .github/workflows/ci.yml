@@ -193,8 +193,12 @@ jobs:
             ai_helm_args+=(--set app.ai.existingSecret=news-dashboard-ai)
           fi
 
-          # Sync Helm chart changes from the repo.
-          cd ~/news-dashboard && git pull --ff-only
+          # Sync Helm chart changes from main. Avoid relying on the deploy
+          # host clone's branch/upstream config, which may point at a deleted
+          # feature branch.
+          cd ~/news-dashboard
+          git fetch --prune origin main
+          git checkout --detach FETCH_HEAD
 
           # Upgrade (or install on first run). Keep the host Caddy route stable
           # by preserving the NodePort and local durable hostPath storage.

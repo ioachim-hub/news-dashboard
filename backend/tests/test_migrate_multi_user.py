@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 import news_dashboard.db as db_mod
 from news_dashboard.db import connect, init_db
 from news_dashboard.ingest import sync_sources
-from news_dashboard.migrate import _check_prerequisites, app
+from news_dashboard.migrate import _check_prerequisites, _ph, _row_count, app
 
 runner = CliRunner()
 
@@ -40,6 +40,40 @@ def _insert_article(db_path: Path, *, url_suffix: str = "1", state: str = "done"
             ),
         ).fetchone()
     return int(row[0] if isinstance(row, tuple) else row["id"])
+
+
+# ── _ph and _row_count helpers ────────────────────────────────────────────────
+
+
+def test_ph_returns_question_mark_without_postgres_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+    assert _ph() == "?"
+
+
+def test_ph_returns_percent_s_with_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pw@localhost/db")
+    assert _ph() == "%s"
+
+
+def test_ph_returns_percent_s_with_postgres_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    assert _ph() == "%s"
+
+
+def test_row_count_sqlite_style() -> None:
+    # Simulate a sqlite3.Row-like dict with COUNT(*) key
+    assert _row_count({"COUNT(*)": 7}) == 7
+
+
+def test_row_count_postgres_style() -> None:
+    # Simulate a psycopg dict_row with 'count' key (lowercase)
+    assert _row_count({"count": 3}) == 3
+
+
+def test_row_count_none_returns_zero() -> None:
+    assert _row_count(None) == 0
 
 
 # ── _check_prerequisites ──────────────────────────────────────────────────────

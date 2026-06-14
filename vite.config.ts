@@ -46,12 +46,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Cache the app shell (JS/CSS/HTML) with a StaleWhileRevalidate strategy
-        // so the app loads instantly and updates in the background.
-        //
-        // API calls (/api/**) are intentionally NOT cached — news data must be
-        // fresh and caching it would show stale articles or briefings offline.
+        // Cache the app shell and static assets, but never let the service worker
+        // answer backend/auth navigations.  Otherwise `/auth/login` can be served
+        // as the SPA fallback and Keycloak redirects never reach the server.
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /^\/keycloak\//],
         runtimeCaching: [
           {
             // Icon/image assets: cache-first, long TTL

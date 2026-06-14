@@ -858,8 +858,8 @@ def _list_articles_for_user(  # noqa: PLR0913
             art_clauses.append("COALESCE(uas.state, 'today') = ?")
             where_params.append(state)
     if starred is not None:
-        art_clauses.append("COALESCE(uas.starred, 0) = ?")
-        where_params.append(1 if starred else 0)
+        art_clauses.append("COALESCE(uas.starred, false) = ?")
+        where_params.append(bool(starred))
     if category:
         art_clauses.append("a.category = ?")
         where_params.append(category)
@@ -877,7 +877,7 @@ def _list_articles_for_user(  # noqa: PLR0913
     sql = f"""
         SELECT a.*,
           COALESCE(uas.state, 'today') AS _uas_state,
-          COALESCE(uas.starred, 0)     AS _uas_starred,
+          COALESCE(uas.starred, false)  AS _uas_starred,
           uas.done_at     AS _uas_done_at,
           uas.starred_at  AS _uas_starred_at,
           uas.skipped_at  AS _uas_skipped_at,
@@ -1078,7 +1078,7 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
         where_params.extend(sources)
 
     if starred_only:
-        clauses.append("COALESCE(uas.starred, 0) = 1")
+        clauses.append("COALESCE(uas.starred, false) = true")
 
     if date_range == "today":
         clauses.append("a.discovered_at >= datetime(?, '-1 day')")
@@ -1107,7 +1107,7 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
     sql = f"""
         SELECT a.*,
           COALESCE(uas.state, 'today') AS _uas_state,
-          COALESCE(uas.starred, 0)     AS _uas_starred,
+          COALESCE(uas.starred, false)  AS _uas_starred,
           uas.done_at     AS _uas_done_at,
           uas.starred_at  AS _uas_starred_at,
           uas.skipped_at  AS _uas_skipped_at,

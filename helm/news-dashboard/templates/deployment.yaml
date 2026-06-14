@@ -64,6 +64,27 @@ spec:
                   key: {{ .Values.app.ai.openaiApiKeyKey | quote }}
                   optional: true
 {{- end }}
+{{- if .Values.app.auth.enabled }}
+            - name: KEYCLOAK_AUTH_ENABLED
+              value: "1"
+            - name: NEWS_DASHBOARD_BASE_URL
+              value: {{ .Values.app.auth.publicBaseUrl | quote }}
+            - name: KEYCLOAK_SERVER_URL
+              value: {{ .Values.app.auth.keycloakServerUrl | quote }}
+            - name: KEYCLOAK_INTERNAL_SERVER_URL
+              value: {{ .Values.app.auth.keycloakInternalServerUrl | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.app.auth.realm | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.app.auth.clientId | quote }}
+            - name: KEYCLOAK_ADMIN_USERNAMES
+              value: {{ .Values.app.auth.adminUsernames | quote }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "news-dashboard.fullname" . }}-auth
+                  key: SESSION_SECRET
+{{- end }}
           ports:
             - containerPort: 8080
               name: http

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -19,8 +20,13 @@ from .auth import (
     create_session_token,
     create_user,
     delete_user,
+    exchange_keycloak_code,
     get_user_by_id,
     init_auth,
+    keycloak_auth_metadata,
+    keycloak_authorization_url,
+    keycloak_config,
+    keycloak_logout_url,
     list_users,
     require_admin,
     require_auth,
@@ -71,6 +77,7 @@ from .stats import (
 )
 
 _SESSION_COOKIE = "nd_session"
+_OAUTH_STATE_COOKIE = "nd_oauth_state"
 _SESSION_DAYS = 30
 
 
@@ -171,8 +178,66 @@ def health() -> dict[str, Any]:
     }
 
 
+@public_router.get("/api/auth/config")
+def auth_config() -> dict[str, Any]:
+    return keycloak_auth_metadata()
+
+
+@public_router.get("/auth/login")
+def keycloak_login() -> RedirectResponse:
+    if not keycloak_config().enabled:
+        return RedirectResponse(url="/login")
+    state = secrets.token_urlsafe(32)
+    redirect = RedirectResponse(url=keycloak_authorization_url(state))
+    redirect.set_cookie(
+        key=_OAUTH_STATE_COOKIE,
+        value=state,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=600,
+        path="/auth/callback",
+    )
+    return redirect
+
+
+@public_router.get("/auth/callback")
+async def keycloak_callback(request: Request) -> RedirectResponse:
+    expected_state = request.cookies.get(_OAUTH_STATE_COOKIE)
+    state = request.query_params.get("state")
+    code = request.query_params.get("code")
+    if not expected_state or not state or not secrets.compare_digest(expected_state, state):
+        raise HTTPException(status_code=400, detail="Invalid Keycloak OAuth state")
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing Keycloak OAuth code")
+
+    user = await exchange_keycloak_code(code)
+    token = create_session_token(user["id"], bool(user["is_admin"]))
+    redirect = RedirectResponse(url="/")
+    redirect.set_cookie(
+        key=_SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=_SESSION_DAYS * 86400,
+        path="/",
+    )
+    redirect.delete_cookie(key=_OAUTH_STATE_COOKIE, path="/auth/callback")
+    return redirect
+
+
+@public_router.get("/auth/logout")
+def keycloak_logout() -> RedirectResponse:
+    redirect = RedirectResponse(url=keycloak_logout_url())
+    redirect.delete_cookie(key=_SESSION_COOKIE, path="/")
+    return redirect
+
+
 @public_router.post("/api/auth/login")
 def login(payload: LoginRequest, response: Response) -> dict[str, Any]:
+    if keycloak_config().enabled:
+        raise HTTPException(status_code=409, detail="Password login is disabled; use Keycloak")
     user = authenticate(payload.username, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")

@@ -1,12 +1,16 @@
-"""Authentication: users, sessions, and FastAPI dependencies."""
+"""Authentication: local users, optional Keycloak SSO, sessions, and dependencies."""
 
 from __future__ import annotations
 
 import logging
 import os
+import secrets
+from dataclasses import dataclass
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 import bcrypt
+import httpx
 from fastapi import Depends, HTTPException, Request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
@@ -16,6 +20,70 @@ logger = logging.getLogger(__name__)
 
 _SESSION_COOKIE = "nd_session"
 _SESSION_SALT = "nd-session-v1"
+
+
+@dataclass(frozen=True)
+class KeycloakConfig:
+    enabled: bool
+    public_server_url: str
+    internal_server_url: str
+    realm: str
+    client_id: str
+    base_url: str
+
+    @property
+    def public_realm_url(self) -> str:
+        return f"{self.public_server_url}/realms/{self.realm}"
+
+    @property
+    def internal_realm_url(self) -> str:
+        return f"{self.internal_server_url}/realms/{self.realm}"
+
+    @property
+    def redirect_uri(self) -> str:
+        return f"{self.base_url}/auth/callback"
+
+
+# --------------------------------------------------------------------------- #
+# Config helpers                                                                #
+# --------------------------------------------------------------------------- #
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _strip_url(value: str | None) -> str:
+    return (value or "").strip().rstrip("/")
+
+
+def keycloak_config() -> KeycloakConfig:
+    public_server = _strip_url(os.getenv("KEYCLOAK_SERVER_URL"))
+    internal_server = _strip_url(os.getenv("KEYCLOAK_INTERNAL_SERVER_URL")) or public_server
+    return KeycloakConfig(
+        enabled=_truthy(os.getenv("KEYCLOAK_AUTH_ENABLED")),
+        public_server_url=public_server,
+        internal_server_url=internal_server,
+        realm=(os.getenv("KEYCLOAK_REALM") or "news-dashboard").strip(),
+        client_id=(os.getenv("KEYCLOAK_CLIENT_ID") or "news-dashboard").strip(),
+        base_url=_strip_url(os.getenv("NEWS_DASHBOARD_BASE_URL")) or "http://localhost:8080",
+    )
+
+
+def keycloak_auth_metadata() -> dict[str, Any]:
+    config = keycloak_config()
+    return {
+        "provider": "keycloak" if config.enabled else "password",
+        "keycloak_enabled": config.enabled,
+        "login_url": "/auth/login" if config.enabled else None,
+        "logout_url": "/auth/logout" if config.enabled else "/api/auth/logout",
+    }
+
+
+def _keycloak_admin_usernames() -> set[str]:
+    raw = os.getenv("KEYCLOAK_ADMIN_USERNAMES", "ioachim")
+    return {u.strip().lower() for u in raw.split(",") if u.strip()}
+
 
 # --------------------------------------------------------------------------- #
 # Session secret — required in production; tests may set TEST_SESSION_SECRET.  #
@@ -96,6 +164,16 @@ def get_user_by_username(username: str) -> dict[str, Any] | None:
             "SELECT id, username, email, is_admin, created_at, last_login_at, password_hash"
             " FROM users WHERE username=?",
             (username,),
+        ).fetchone()
+        return row_to_dict(row) if row else None
+
+
+def get_user_by_email(email: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, username, email, is_admin, created_at, last_login_at "
+            "FROM users WHERE email=?",
+            (email,),
         ).fetchone()
         return row_to_dict(row) if row else None
 
@@ -217,6 +295,8 @@ async def require_admin(
 
 def authenticate(username: str, password: str) -> dict[str, Any] | None:
     """Return user dict if credentials are valid, None otherwise."""
+    if keycloak_config().enabled:
+        return None
     user = get_user_by_username(username)
     if not user:
         return None
@@ -226,7 +306,93 @@ def authenticate(username: str, password: str) -> dict[str, Any] | None:
     return {k: v for k, v in user.items() if k != "password_hash"}
 
 
+def keycloak_authorization_url(state: str) -> str:
+    config = keycloak_config()
+    if not config.enabled or not config.public_server_url:
+        raise HTTPException(status_code=500, detail="Keycloak authentication is not configured")
+    params = urlencode(
+        {
+            "client_id": config.client_id,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "redirect_uri": config.redirect_uri,
+            "state": state,
+        }
+    )
+    return f"{config.public_realm_url}/protocol/openid-connect/auth?{params}"
+
+
+def ensure_keycloak_user(info: dict[str, Any]) -> dict[str, Any]:
+    username = str(
+        info.get("preferred_username") or info.get("email") or info.get("sub") or ""
+    ).strip()
+    if not username:
+        raise HTTPException(status_code=401, detail="Keycloak profile did not include a username")
+    email = str(info.get("email") or "").strip() or None
+
+    existing = get_user_by_username(username)
+    if not existing and email:
+        existing = get_user_by_email(email)
+    if existing:
+        _touch_last_login(int(existing["id"]))
+        return get_user_by_id(int(existing["id"])) or existing
+
+    # Local users are still the app's authorization boundary for per-user data.
+    # Keycloak-created users get an unusable random password because Keycloak owns login.
+    user = create_user(
+        username,
+        secrets.token_urlsafe(48),
+        email=email,
+        is_admin=username.lower() in _keycloak_admin_usernames(),
+    )
+    _touch_last_login(int(user["id"]))
+    return get_user_by_id(int(user["id"])) or user
+
+
+async def exchange_keycloak_code(code: str) -> dict[str, Any]:
+    config = keycloak_config()
+    if not config.enabled:
+        raise HTTPException(status_code=400, detail="Keycloak authentication is disabled")
+    token_url = f"{config.internal_realm_url}/protocol/openid-connect/token"
+    userinfo_url = f"{config.internal_realm_url}/protocol/openid-connect/userinfo"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        token_response = await client.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "client_id": config.client_id,
+                "code": code,
+                "redirect_uri": config.redirect_uri,
+            },
+            headers={"Accept": "application/json"},
+        )
+        if token_response.status_code >= 400:
+            raise HTTPException(status_code=401, detail="Keycloak token exchange failed")
+        access_token = token_response.json().get("access_token")
+        if not access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Keycloak token response had no access token",
+            )
+        user_response = await client.get(
+            userinfo_url,
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        )
+        if user_response.status_code >= 400:
+            raise HTTPException(status_code=401, detail="Keycloak userinfo lookup failed")
+        return ensure_keycloak_user(user_response.json())
+
+
+def keycloak_logout_url() -> str:
+    config = keycloak_config()
+    if not config.enabled or not config.public_server_url:
+        return "/login"
+    params = urlencode({"client_id": config.client_id, "post_logout_redirect_uri": config.base_url})
+    return f"{config.public_realm_url}/protocol/openid-connect/logout?{params}"
+
+
 def init_auth() -> None:
     """Initialise DB and bootstrap first admin on startup."""
     init_db()
-    bootstrap_admin()
+    if not keycloak_config().enabled:
+        bootstrap_admin()

@@ -24,6 +24,7 @@ import type {
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    credentials: 'same-origin',
     ...init,
   });
   if (!response.ok) {
@@ -207,6 +208,17 @@ export async function fetchBriefings(limit = 50, offset = 0): Promise<{ items: B
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+export interface AuthConfig {
+  provider: 'password' | 'keycloak';
+  keycloak_enabled: boolean;
+  login_url: string | null;
+  logout_url: string;
+}
+
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  return requestJson<AuthConfig>('/api/auth/config');
+}
+
 export async function fetchMe(): Promise<User> {
   return requestJson<User>('/api/auth/me');
 }
@@ -219,7 +231,12 @@ export async function loginUser(username: string, password: string): Promise<Use
 }
 
 export async function logoutUser(): Promise<void> {
-  await fetch('/api/auth/logout');
+  const config = await fetchAuthConfig().catch(() => null);
+  if (config?.provider === 'keycloak' && config.logout_url) {
+    window.location.assign(config.logout_url);
+    return;
+  }
+  await fetch('/api/auth/logout', { credentials: 'same-origin' });
 }
 
 export async function toggleSourceSubscription(

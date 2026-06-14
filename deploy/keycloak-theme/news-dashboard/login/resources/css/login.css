@@ -1,0 +1,205 @@
+/* Keycloak login theme for the new Radar Dashboard application. */
+:root {
+  --nd-radius: 0.5rem;
+  --nd-background: oklch(0.985 0.003 80);
+  --nd-foreground: oklch(0.2 0.012 70);
+  --nd-surface: oklch(0.97 0.005 80);
+  --nd-card: oklch(1 0 0);
+  --nd-muted-foreground: oklch(0.5 0.012 70);
+  --nd-subtle: oklch(0.62 0.012 70);
+  --nd-border: oklch(0.9 0.008 80);
+  --nd-ring: oklch(0.55 0.13 45);
+  --nd-err: oklch(0.55 0.18 28);
+  --nd-font: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html,
+body,
+.login-pf,
+.login-pf body,
+body.login-pf {
+  min-height: 100%;
+  background: var(--nd-background) !important;
+  color: var(--nd-foreground);
+  font-family: var(--nd-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+}
+
+.login-pf-page,
+.pf-v5-c-login,
+.pf-v5-c-login__container {
+  min-height: 100vh;
+  background: var(--nd-background) !important;
+}
+
+.pf-v5-c-login__container {
+  display: grid !important;
+  grid-template-columns: minmax(0, 24rem) !important;
+  grid-template-areas: 'main' !important;
+  place-content: center !important;
+  padding: 1rem;
+}
+
+.pf-v5-c-login__header,
+.pf-v5-c-brand,
+#kc-header,
+#kc-header-wrapper {
+  display: none !important;
+}
+
+.pf-v5-c-login__main {
+  grid-area: main !important;
+  width: min(24rem, 100%);
+  padding: 1.5rem;
+  border: 1px solid var(--nd-border);
+  border-radius: 0.75rem;
+  background: var(--nd-card);
+  box-shadow: 0 1px 2px rgba(20, 23, 31, 0.05);
+}
+
+.pf-v5-c-login__main-header,
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  padding: 0;
+}
+
+#kc-page-title,
+.pf-v5-c-title {
+  margin: 0 0 1.5rem !important;
+  color: var(--nd-foreground) !important;
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  line-height: 1.2;
+  text-align: center;
+}
+
+#kc-page-title::before {
+  content: 'RD';
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 0.5rem;
+  border-radius: 0.75rem;
+  background: color-mix(in oklch, var(--nd-foreground) 90%, transparent);
+  color: var(--nd-background);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+#kc-page-title::after {
+  content: 'Private radar dashboard for news.lihor.ro';
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--nd-muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.pf-v5-c-form,
+.pf-v5-c-form__group,
+.pf-v5-c-form__actions {
+  gap: 1rem;
+}
+
+.pf-v5-c-form__label-text,
+label {
+  color: var(--nd-muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.pf-v5-c-form-control,
+.pf-v5-c-form-control > input,
+input[type='text'],
+input[type='password'],
+input[type='email'] {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem !important;
+  border: 1px solid var(--nd-border) !important;
+  border-radius: var(--nd-radius) !important;
+  background: var(--nd-surface) !important;
+  color: var(--nd-foreground) !important;
+  font-size: 0.875rem !important;
+  box-shadow: none !important;
+}
+
+.pf-v5-c-form-control:focus-within,
+.pf-v5-c-form-control > input:focus,
+input[type='text']:focus,
+input[type='password']:focus,
+input[type='email']:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--nd-ring) !important;
+}
+
+.pf-v5-c-button.pf-m-control {
+  min-height: 2.5rem;
+  border-color: var(--nd-border) !important;
+  border-radius: var(--nd-radius) !important;
+  background: var(--nd-surface) !important;
+  color: var(--nd-muted-foreground) !important;
+}
+
+.pf-v5-c-button.pf-m-primary,
+#kc-login {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 2.5rem;
+  border: 0 !important;
+  border-radius: var(--nd-radius) !important;
+  background: var(--nd-foreground) !important;
+  color: var(--nd-background) !important;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: none !important;
+  transition: opacity 150ms ease;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+#kc-login:hover {
+  opacity: 0.9;
+}
+
+a {
+  color: var(--nd-foreground) !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pf-v5-c-alert,
+#input-error,
+.pf-v5-c-helper-text,
+.pf-v5-c-form__helper-text {
+  color: var(--nd-err);
+  border-radius: var(--nd-radius);
+  font-size: 0.75rem;
+}
+
+.pf-v5-c-login__main-footer,
+#kc-info,
+#kc-info-wrapper {
+  color: var(--nd-muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --nd-background: oklch(0.155 0.008 80);
+    --nd-foreground: oklch(0.94 0.005 80);
+    --nd-surface: oklch(0.185 0.008 80);
+    --nd-card: oklch(0.2 0.008 80);
+    --nd-muted-foreground: oklch(0.65 0.01 80);
+    --nd-subtle: oklch(0.55 0.01 80);
+    --nd-border: oklch(0.28 0.008 80);
+    --nd-ring: oklch(0.68 0.13 45);
+    --nd-err: oklch(0.68 0.18 28);
+  }
+}

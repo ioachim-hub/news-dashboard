@@ -15,8 +15,11 @@ from news_dashboard.auth import (
     create_session_token,
     create_user,
     delete_user,
+    ensure_keycloak_user,
     get_user_by_id,
     hash_password,
+    keycloak_auth_metadata,
+    keycloak_authorization_url,
     list_users,
     update_password,
     user_count_from_row,
@@ -140,6 +143,45 @@ def test_authenticate_wrong_password(tmp_db: Path) -> None:
 
 def test_authenticate_unknown_user(tmp_db: Path) -> None:
     assert authenticate("nobody", "pw") is None
+
+
+# ── Keycloak auth ──────────────────────────────────────────────────────────────
+
+
+def test_keycloak_auth_metadata_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KEYCLOAK_AUTH_ENABLED", raising=False)
+    assert keycloak_auth_metadata()["provider"] == "password"
+
+
+def test_keycloak_authorization_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KEYCLOAK_AUTH_ENABLED", "1")
+    monkeypatch.setenv("NEWS_DASHBOARD_BASE_URL", "https://news.lihor.ro")
+    monkeypatch.setenv("KEYCLOAK_SERVER_URL", "https://news.lihor.ro/keycloak")
+    url = keycloak_authorization_url("state-123")
+    assert url.startswith("https://news.lihor.ro/keycloak/realms/news-dashboard/protocol/openid-connect/auth?")
+    assert "client_id=news-dashboard" in url
+    assert "redirect_uri=https%3A%2F%2Fnews.lihor.ro%2Fauth%2Fcallback" in url
+    assert "state=state-123" in url
+
+
+def test_ensure_keycloak_user_creates_local_user(
+    tmp_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KEYCLOAK_ADMIN_USERNAMES", "ioachim")
+    user = ensure_keycloak_user(
+        {"preferred_username": "ioachim", "email": "ioachim@example.test", "sub": "kc-sub"}
+    )
+    assert user["username"] == "ioachim"
+    assert user["email"] == "ioachim@example.test"
+    assert user["is_admin"]
+
+
+def test_password_login_disabled_when_keycloak_enabled(
+    tmp_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("KEYCLOAK_AUTH_ENABLED", "1")
+    create_user("local", "pw")
+    assert authenticate("local", "pw") is None
 
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────

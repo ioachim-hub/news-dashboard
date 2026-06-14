@@ -94,9 +94,13 @@ news-dashboard-migrate /data/news-dashboard.db
 ## Deployment notes
 
 - The app should be private/auth-protected when exposed publicly.
-- `news.lihor.ro` is served by host-level Caddy with Basic Auth and automatic
-  Let's Encrypt HTTPS. See [docs/CADDY_HTTPS_SETUP.md](docs/CADDY_HTTPS_SETUP.md)
-  for the full setup guide; the Caddyfile lives at `deploy/Caddyfile`.
+- `news.lihor.ro` uses app-level authentication. The local minipc deployment can
+  use Keycloak under `https://news.lihor.ro/keycloak`; see
+  [docs/KEYCLOAK_AUTH.md](docs/KEYCLOAK_AUTH.md) for backend env vars, Helm
+  values, Caddy routing, and the matching Keycloak login theme.
+- `news.lihor.ro` is served by host-level Caddy with automatic Let's Encrypt
+  HTTPS. See [docs/CADDY_HTTPS_SETUP.md](docs/CADDY_HTTPS_SETUP.md) for the
+  full HTTPS setup guide; the Caddyfile lives at `deploy/Caddyfile`.
 - HTTPS is required for PWA install (Chrome/Android "Add to Home Screen" as a
   standalone app) and for service worker registration.
 - GitHub Actions publishes `ghcr.io/ioachim-hub/news-dashboard`.

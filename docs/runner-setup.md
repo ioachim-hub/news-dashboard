@@ -116,7 +116,7 @@ git push origin main
        ├─ docker login ghcr.io
        ├─ docker pull <image>:<sha>
        ├─ kubectl apply imagePullSecret
-       ├─ git pull --ff-only (sync chart changes)
+       ├─ git fetch origin main + checkout FETCH_HEAD (sync chart changes)
        ├─ helm upgrade --set image.tag=<sha>
        ├─ kubectl rollout status --timeout=120s
        └─ curl http://localhost:30088/api/health smoke test

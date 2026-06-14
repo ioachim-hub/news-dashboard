@@ -132,6 +132,9 @@ jobs:
   # │                   (Classic token, read:packages, 1-year expiry.)     │
   # │                   This lets the mini PC pull the image from GHCR.    │
   # │                                                                      │
+  # │  SESSION_SECRET   A long random string used to sign app sessions.    │
+  # │                   Required when Keycloak auth is enabled.            │
+  # │                                                                      │
   # │                   SHORTCUT: if you make the GHCR package public      │
   # │                   (repo Settings → Packages → Change visibility),    │
   # │                   you can skip GHCR_TOKEN entirely and remove the    │
@@ -154,8 +157,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           set -euo pipefail
+
+          if [ -z "$SESSION_SECRET" ]; then
+            echo "SESSION_SECRET GitHub Actions secret is required for production auth." >&2
+            exit 1
+          fi
 
           # Authenticate to GHCR so the cluster node can pull the image.
           # Remove these two lines if the GHCR package is public.
@@ -200,6 +209,7 @@ jobs:
             --set persistence.hostPath=/home/ioachim-minipc/news-dashboard-data
             --set postgresql.persistence.hostPath=/home/ioachim-minipc/news-dashboard-postgres-data
             --set ingress.enabled=false
+            --set-string app.auth.sessionSecret="$SESSION_SECRET"
             "${ai_helm_args[@]}"
           )
           helm "${helm_args[@]}"

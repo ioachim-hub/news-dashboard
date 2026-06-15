@@ -121,4 +121,29 @@ describe('SwipeableRow — long-press gesture', () => {
     void act(() => vi.advanceTimersByTime(500));
     expect(onLongPress).toHaveBeenCalledOnce();
   });
+
+  it('prevents contextmenu event when onLongPress is set', () => {
+    const onLongPress = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onLongPress={onLongPress}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    inner.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it('does not prevent contextmenu event when onLongPress is not set', () => {
+    const { getByTestId } = render(
+      <SwipeableRow>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    const evt = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    inner.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+  });
 });

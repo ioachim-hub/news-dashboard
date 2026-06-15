@@ -130,6 +130,10 @@ export function SwipeableRow({
             longPressFired.current = false;
           }
         }}
+        onContextMenu={(e) => {
+          // Suppress Chrome's native link context menu during long-press
+          if (onLongPress) e.preventDefault();
+        }}
         onTouchStart={(e) => {
           const touch = e.touches[0];
           onStart(touch.clientX);

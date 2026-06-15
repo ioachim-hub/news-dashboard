@@ -1,34 +1,66 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Star, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Props {
   children: ReactNode;
   onSwipeRight?: () => void;
   onSwipeLeft?: () => void;
+  onLongPress?: () => void;
   disableLeft?: boolean;
 }
 
 const THRESHOLD = 80;
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_LIMIT = 10;
 
-export function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disableLeft }: Props) {
+export function SwipeableRow({
+  children,
+  onSwipeRight,
+  onSwipeLeft,
+  onLongPress,
+  disableLeft,
+}: Props) {
   const [dx, setDx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [committing, setCommitting] = useState(false);
   const startX = useRef<number | null>(null);
+
+  // Long-press state
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const longPressFired = useRef(false);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   const onStart = (x: number) => {
     startX.current = x;
     setIsDragging(true);
   };
 
-  const onMove = (x: number) => {
+  const onMove = (x: number, y: number) => {
     if (!isDragging || startX.current == null) return;
     const d = x - startX.current;
     setDx(disableLeft && d < 0 ? Math.max(d, -20) : Math.max(Math.min(d, 140), -140));
+
+    // Cancel long-press if finger moved too far
+    if (longPressOrigin.current) {
+      const moveX = Math.abs(x - longPressOrigin.current.x);
+      const moveY = Math.abs(y - longPressOrigin.current.y);
+      if (moveX > LONG_PRESS_MOVE_LIMIT || moveY > LONG_PRESS_MOVE_LIMIT) {
+        clearLongPress();
+      }
+    }
   };
 
   const onEnd = () => {
+    clearLongPress();
+    longPressOrigin.current = null;
     if (!isDragging) return;
     setIsDragging(false);
     const willFire =
@@ -36,7 +68,6 @@ export function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disableLeft 
     if (willFire) {
       setCommitting(true);
       const action = dx > THRESHOLD ? onSwipeRight : onSwipeLeft;
-      // Fire action after brief animation window
       setTimeout(() => {
         action?.();
         setCommitting(false);
@@ -54,13 +85,13 @@ export function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disableLeft 
       {showRight && (
         <div
           className={cn(
-            'absolute inset-y-0 left-0 flex items-center px-5 text-star transition-all duration-150',
-            dx > THRESHOLD ? 'bg-star/25' : 'bg-star/15'
+            'absolute inset-y-0 left-0 flex items-center px-5 text-emerald-500 transition-all duration-150',
+            dx > THRESHOLD ? 'bg-emerald-500/25' : 'bg-emerald-500/15'
           )}
         >
-          <Star
+          <Check
             className={cn(
-              'size-5 fill-current transition-transform duration-150',
+              'size-5 transition-transform duration-150',
               dx > THRESHOLD && 'scale-110'
             )}
           />
@@ -91,8 +122,31 @@ export function SwipeableRow({ children, onSwipeRight, onSwipeLeft, disableLeft 
               : 'transition-transform duration-150'
         )}
         style={committing ? undefined : { transform: `translateX(${dx}px)` }}
-        onTouchStart={(e) => onStart(e.touches[0].clientX)}
-        onTouchMove={(e) => onMove(e.touches[0].clientX)}
+        onClickCapture={(e) => {
+          // Prevent navigation click from firing after a long-press
+          if (longPressFired.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            longPressFired.current = false;
+          }
+        }}
+        onTouchStart={(e) => {
+          const touch = e.touches[0];
+          onStart(touch.clientX);
+          if (onLongPress) {
+            longPressOrigin.current = { x: touch.clientX, y: touch.clientY };
+            longPressFired.current = false;
+            longPressTimer.current = setTimeout(() => {
+              longPressFired.current = true;
+              longPressTimer.current = null;
+              onLongPress();
+            }, LONG_PRESS_MS);
+          }
+        }}
+        onTouchMove={(e) => {
+          const touch = e.touches[0];
+          onMove(touch.clientX, touch.clientY);
+        }}
         onTouchEnd={onEnd}
       >
         {children}

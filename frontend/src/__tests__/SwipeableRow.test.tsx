@@ -1,0 +1,124 @@
+// @vitest-environment happy-dom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, fireEvent, act } from '@testing-library/react';
+import { SwipeableRow } from '../components/article/SwipeableRow';
+
+describe('SwipeableRow — swipe gestures', () => {
+  it('fires onSwipeRight when dragged past threshold', () => {
+    const onSwipeRight = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onSwipeRight={onSwipeRight}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    // Action fires after 180 ms animation window; use fake timers
+    vi.useFakeTimers();
+    fireEvent.touchStart(inner, { touches: [{ clientX: 0, clientY: 0 }] });
+    fireEvent.touchMove(inner, { touches: [{ clientX: 100, clientY: 0 }] });
+    fireEvent.touchEnd(inner);
+    void act(() => vi.advanceTimersByTime(200));
+    expect(onSwipeRight).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('fires onSwipeLeft when dragged left past threshold', () => {
+    const onSwipeLeft = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onSwipeLeft={onSwipeLeft}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    vi.useFakeTimers();
+    fireEvent.touchStart(inner, { touches: [{ clientX: 100, clientY: 0 }] });
+    fireEvent.touchMove(inner, { touches: [{ clientX: 0, clientY: 0 }] });
+    fireEvent.touchEnd(inner);
+    void act(() => vi.advanceTimersByTime(200));
+    expect(onSwipeLeft).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('does not fire onSwipeLeft when disableLeft=true', () => {
+    const onSwipeLeft = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onSwipeLeft={onSwipeLeft} disableLeft>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    vi.useFakeTimers();
+    fireEvent.touchStart(inner, { touches: [{ clientX: 100, clientY: 0 }] });
+    fireEvent.touchMove(inner, { touches: [{ clientX: 0, clientY: 0 }] });
+    fireEvent.touchEnd(inner);
+    void act(() => vi.advanceTimersByTime(200));
+    expect(onSwipeLeft).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
+describe('SwipeableRow — long-press gesture', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fires onLongPress after 500 ms hold without movement', () => {
+    const onLongPress = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onLongPress={onLongPress}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    fireEvent.touchStart(inner, { touches: [{ clientX: 50, clientY: 50 }] });
+    void act(() => vi.advanceTimersByTime(500));
+    expect(onLongPress).toHaveBeenCalledOnce();
+  });
+
+  it('does not fire onLongPress if finger moves more than 10 px before 500 ms', () => {
+    const onLongPress = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onLongPress={onLongPress}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    fireEvent.touchStart(inner, { touches: [{ clientX: 50, clientY: 50 }] });
+    fireEvent.touchMove(inner, { touches: [{ clientX: 65, clientY: 50 }] }); // 15 px → cancel
+    void act(() => vi.advanceTimersByTime(500));
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it('does not fire onLongPress if touch ends before 500 ms', () => {
+    const onLongPress = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onLongPress={onLongPress}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    fireEvent.touchStart(inner, { touches: [{ clientX: 50, clientY: 50 }] });
+    void act(() => vi.advanceTimersByTime(300));
+    fireEvent.touchEnd(inner);
+    void act(() => vi.advanceTimersByTime(300));
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  it('allows small finger movement (≤10 px) without cancelling long-press', () => {
+    const onLongPress = vi.fn();
+    const { getByTestId } = render(
+      <SwipeableRow onLongPress={onLongPress}>
+        <div data-testid="inner">content</div>
+      </SwipeableRow>
+    );
+    const inner = getByTestId('inner');
+    fireEvent.touchStart(inner, { touches: [{ clientX: 50, clientY: 50 }] });
+    fireEvent.touchMove(inner, { touches: [{ clientX: 55, clientY: 52 }] }); // 5 px → keep timer
+    void act(() => vi.advanceTimersByTime(500));
+    expect(onLongPress).toHaveBeenCalledOnce();
+  });
+});

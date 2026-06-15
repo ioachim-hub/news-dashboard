@@ -15,8 +15,9 @@ interface Props {
 export function ArticleRow({ article, focused, showLaterUntil }: Props) {
   const { setState, toggleStar } = useTriageMutations();
 
-  const handleStar = () => toggleStar(article);
+  const handleDone = () => setState(article, 'done', 'Read');
   const handleSkip = () => setState(article, 'skipped', 'Skipped');
+  const handleStar = () => toggleStar(article);
 
   const signalColor =
     article.signal === 'high'
@@ -26,7 +27,12 @@ export function ArticleRow({ article, focused, showLaterUntil }: Props) {
         : 'text-signal-low';
 
   return (
-    <SwipeableRow onSwipeRight={handleStar} onSwipeLeft={handleSkip} disableLeft={article.starred}>
+    <SwipeableRow
+      onSwipeRight={handleDone}
+      onSwipeLeft={handleSkip}
+      onLongPress={handleStar}
+      disableLeft={article.starred}
+    >
       <Link
         to={`/a/${article.id}`}
         className={cn(

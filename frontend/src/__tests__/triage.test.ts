@@ -171,7 +171,7 @@ describe('optimistic undo snapshot', () => {
 // ─── Swipe handler logic ──────────────────────────────────────────────────────
 
 describe('swipe handler behaviour', () => {
-  it('swipe right triggers star action', () => {
+  it('swipe right triggers done (mark as read) action', () => {
     const onSwipeRight = vi.fn();
     const onSwipeLeft = vi.fn();
 

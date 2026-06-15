@@ -11,7 +11,7 @@ import urllib.request
 from html.parser import HTMLParser
 from typing import Any
 
-USER_AGENT = "news-dashboard/0.1 (personal RSS reader; contact@example.com)"
+USER_AGENT = "news-dashboard/0.1 (personal RSS reader; contact@lihor.ro)"
 TIMEOUT_SECS = 15
 
 

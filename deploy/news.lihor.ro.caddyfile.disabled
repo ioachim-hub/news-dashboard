@@ -1,7 +1,7 @@
-# Staged only. Do not import/reload until news.example.com DNS resolves.
+# Staged only. Do not import/reload until news.lihor.ro DNS resolves.
 # Add basic_auth before public exposure.
 
-news.example.com {
+news.lihor.ro {
   encode zstd gzip
 
   header {

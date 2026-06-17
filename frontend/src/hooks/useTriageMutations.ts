@@ -81,6 +81,22 @@ function restoreToCache(queryClient: ReturnType<typeof useQueryClient>, article:
   });
 }
 
+/**
+ * Settle the caches after a triage action resolves (success, error, or undo).
+ *
+ * The optimistic `applyPatchToCache`/`restoreQuerySnapshots` already left every
+ * state-filtered article list correct, and the triage endpoints (`/state`,
+ * `/star`, `/later`) have no cross-article side effects — so refetching the full
+ * article list on every click only adds a network round-trip and risks a
+ * flicker/reorder on a remote backend. Mark the lists stale *without* an
+ * immediate refetch (they refresh lazily on the next mount) and only refetch the
+ * cheap summary counts, which aren't derivable from the cache.
+ */
+function settleArticleCaches(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY], refetchType: 'none' });
+  void queryClient.invalidateQueries({ queryKey: ['summary'] });
+}
+
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
 export function useTriageMutations() {
@@ -114,8 +130,7 @@ export function useTriageMutations() {
     },
 
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ['summary'] });
+      settleArticleCaches(queryClient);
     },
   });
 
@@ -141,8 +156,7 @@ export function useTriageMutations() {
     },
 
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ['summary'] });
+      settleArticleCaches(queryClient);
     },
   });
 
@@ -167,7 +181,7 @@ export function useTriageMutations() {
     },
 
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
+      settleArticleCaches(queryClient);
     },
   });
 
@@ -186,8 +200,7 @@ export function useTriageMutations() {
           restoreQuerySnapshots(queryClient, querySnapshots);
           void patchArticleState(snap.article.id, snap.article.state, snap.article.starred).then(
             () => {
-              void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
-              void queryClient.invalidateQueries({ queryKey: ['summary'] });
+              settleArticleCaches(queryClient);
             }
           );
         },
@@ -206,8 +219,7 @@ export function useTriageMutations() {
         onClick: () => {
           restoreQuerySnapshots(queryClient, querySnapshots);
           void patchArticleStar(snap.article.id, snap.article.starred).then(() => {
-            void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
-            void queryClient.invalidateQueries({ queryKey: ['summary'] });
+            settleArticleCaches(queryClient);
           });
         },
       },
@@ -225,8 +237,7 @@ export function useTriageMutations() {
           restoreQuerySnapshots(queryClient, querySnapshots);
           void patchArticleState(snap.article.id, snap.article.state, snap.article.starred).then(
             () => {
-              void queryClient.invalidateQueries({ queryKey: [ARTICLES_KEY] });
-              void queryClient.invalidateQueries({ queryKey: ['summary'] });
+              settleArticleCaches(queryClient);
             }
           );
         },

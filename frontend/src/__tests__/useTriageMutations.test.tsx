@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { toast } from 'sonner';
@@ -194,5 +194,37 @@ describe('useTriageMutations — undo calls the API to revert server state', () 
     });
 
     expect(queryClient.getQueryData([ARTICLES_KEY, 'today'])).toEqual([]);
+  });
+});
+
+describe('useTriageMutations — settles caches without a full article refetch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    patchArticleStatePromise = Promise.resolve({});
+  });
+
+  it('marks article lists stale without refetching and refreshes summary counts', async () => {
+    const { wrapper, queryClient } = makeWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const { result } = renderHook(() => useTriageMutations(), { wrapper });
+    const article = makeArticle({ state: 'today' });
+
+    await act(async () => {
+      result.current.setState(article, 'done', 'Marked as read');
+      await patchArticleStatePromise;
+    });
+
+    // Article lists are marked stale but NOT refetched (refetchType: 'none'),
+    // so a triage click never triggers a full list round-trip to the backend.
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: [ARTICLES_KEY],
+        refetchType: 'none',
+      });
+    });
+    // Summary counts aren't derivable from the cache, so they still refetch.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['summary'] });
+    // No invalidation ever forces an immediate article-list refetch.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: [ARTICLES_KEY] });
   });
 });

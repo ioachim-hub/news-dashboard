@@ -61,16 +61,18 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: news_dashboard_test
+          POSTGRES_DB: news_dashboard
           POSTGRES_USER: news_dashboard
           POSTGRES_PASSWORD: news_dashboard
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U news_dashboard -d news_dashboard_test"
-          --health-interval 5s
+          --health-cmd pg_isready
+          --health-interval 10s
           --health-timeout 5s
-          --health-retries 12
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://news_dashboard:news_dashboard@localhost:5432/news_dashboard
     steps:
       - uses: actions/checkout@v4
 
@@ -81,7 +83,7 @@ jobs:
       - run: pip install -e '.[dev]'
       - run: pytest -v --cov --cov-report=term-missing
         env:
-          TEST_DATABASE_URL: postgresql://news_dashboard:news_dashboard@127.0.0.1:5432/news_dashboard_test
+          TEST_DATABASE_URL: postgresql://news_dashboard:news_dashboard@127.0.0.1:5432/news_dashboard
 
       - uses: actions/setup-node@v4
         with:

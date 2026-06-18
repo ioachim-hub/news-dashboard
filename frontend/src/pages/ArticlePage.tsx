@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -522,50 +523,58 @@ export function ArticlePage() {
       </div>
       {/* end animated wrapper */}
 
-      {/* Action bar — intentionally outside the motion-slide-in-right wrapper
-          so position:fixed always resolves against the viewport, not against
-          an ancestor that carries a CSS transform during the entry animation */}
-      <div
-        data-testid="action-bar"
-        className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
-      >
-        <div className="mx-auto max-w-2xl grid grid-cols-7 gap-1 p-2">
-          <ActionBtn
-            onClick={() => void doStar()}
-            icon={Star}
-            label={article.starred ? 'Unstar' : 'Star'}
-            active={article.starred}
-          />
-          <ActionBtn onClick={() => void doAction('done', 'Done')} icon={Check} label="Done" />
-          <ActionBtn onClick={() => void doAction('later', 'Later')} icon={Clock} label="Later" />
-          <ActionBtn
-            onClick={() => void doAction('skipped', 'Skipped')}
-            icon={XIcon}
-            label="Skip"
-            disabled={article.starred}
-          />
-          <ActionBtn
-            onClick={() => void doAction('archived', 'Archived')}
-            icon={Archive}
-            label="Archive"
-          />
-          <ActionBtn
-            onClick={handleListen}
-            icon={audioState === 'loading' ? Loader2 : audioState === 'playing' ? Square : Volume2}
-            label={
-              audioState === 'loading'
-                ? 'Loading…'
-                : audioState === 'playing'
-                  ? 'Stop'
-                  : audioState === 'paused'
-                    ? 'Resume'
-                    : 'Listen'
-            }
-            disabled={audioState === 'loading'}
-          />
-          <ActionBtn onClick={() => void handleShare()} icon={Share2} label="Share" />
-        </div>
-      </div>
+      {/* Action bar rendered via portal so its position:fixed always resolves
+          against the viewport regardless of any CSS transform that may exist on
+          an ancestor or sibling of the ArticlePage root during the entry
+          animation (motion-slide-in-right carries transform:translateX in its
+          from-keyframe; even as a sibling, some mobile browser compositors
+          bleed this transform onto nearby fixed elements for the first paint). */}
+      {createPortal(
+        <div
+          data-testid="action-bar"
+          className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
+        >
+          <div className="mx-auto max-w-2xl grid grid-cols-7 gap-1 p-2">
+            <ActionBtn
+              onClick={() => void doStar()}
+              icon={Star}
+              label={article.starred ? 'Unstar' : 'Star'}
+              active={article.starred}
+            />
+            <ActionBtn onClick={() => void doAction('done', 'Done')} icon={Check} label="Done" />
+            <ActionBtn onClick={() => void doAction('later', 'Later')} icon={Clock} label="Later" />
+            <ActionBtn
+              onClick={() => void doAction('skipped', 'Skipped')}
+              icon={XIcon}
+              label="Skip"
+              disabled={article.starred}
+            />
+            <ActionBtn
+              onClick={() => void doAction('archived', 'Archived')}
+              icon={Archive}
+              label="Archive"
+            />
+            <ActionBtn
+              onClick={handleListen}
+              icon={
+                audioState === 'loading' ? Loader2 : audioState === 'playing' ? Square : Volume2
+              }
+              label={
+                audioState === 'loading'
+                  ? 'Loading…'
+                  : audioState === 'playing'
+                    ? 'Stop'
+                    : audioState === 'paused'
+                      ? 'Resume'
+                      : 'Listen'
+              }
+              disabled={audioState === 'loading'}
+            />
+            <ActionBtn onClick={() => void handleShare()} icon={Share2} label="Share" />
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

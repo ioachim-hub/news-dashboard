@@ -251,11 +251,26 @@ describe('ArticlePage — action bar', () => {
   it('renders the action bar', async () => {
     renderReader();
     await waitFor(() => screen.getByText('Test Article Title'));
-    // The action bar element must be present in the DOM.  It lives outside the
-    // motion-slide-in-right animated wrapper so position:fixed always resolves
-    // against the viewport rather than against an ancestor that carries a CSS
-    // transform during the 0.2 s entry animation (fixes #189).
     expect(screen.getByTestId('action-bar')).toBeTruthy();
+  });
+
+  it('action bar is a direct child of document.body (portal)', async () => {
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    const actionBar = screen.getByTestId('action-bar');
+    // The action bar is rendered via createPortal(…, document.body) so that
+    // position:fixed always resolves against the viewport — no ancestor or
+    // sibling CSS transform (including the motion-slide-in-right entry
+    // animation) can bleed into the compositor layer for the bar (fixes #196).
+    expect(actionBar.parentElement).toBe(document.body);
+  });
+
+  it('action bar is not a descendant of the animated wrapper', async () => {
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    const animatedWrapper = document.querySelector('.motion-slide-in-right');
+    const actionBar = screen.getByTestId('action-bar');
+    expect(animatedWrapper?.contains(actionBar)).toBe(false);
   });
 });
 

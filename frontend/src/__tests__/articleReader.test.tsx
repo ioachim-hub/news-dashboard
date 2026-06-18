@@ -387,6 +387,58 @@ describe('ArticlePage — AI insights', () => {
   });
 });
 
+// ─── Share button ─────────────────────────────────────────────────────────────
+
+describe('ArticlePage — Share button', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'fetchArticle').mockResolvedValue(
+      makeArticle({ body_status: 'ok', body: 'Full article text.' })
+    );
+    vi.spyOn(api, 'fetchArticleBody').mockResolvedValue(
+      makeArticle({ body_status: 'ok', body: 'Full article text.' })
+    );
+    vi.spyOn(api, 'fetchArticleInsights').mockResolvedValue([]);
+  });
+
+  it('shows Share button in the action bar', async () => {
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    expect(screen.getByRole('button', { name: /share/i })).toBeTruthy();
+  });
+
+  it('calls navigator.share with article title and url when supported', async () => {
+    const shareMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', {
+      value: shareMock,
+      configurable: true,
+    });
+
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    await userEvent.click(screen.getByRole('button', { name: /share/i }));
+
+    expect(shareMock).toHaveBeenCalledWith({
+      title: 'Test Article Title',
+      url: 'https://example.com/article',
+    });
+  });
+
+  it('copies to clipboard when navigator.share is unavailable', async () => {
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    const clipboardMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: clipboardMock },
+      configurable: true,
+    });
+
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    await userEvent.click(screen.getByRole('button', { name: /share/i }));
+
+    expect(clipboardMock).toHaveBeenCalledWith('https://example.com/article');
+  });
+});
+
 // ─── TTS / Listen button ──────────────────────────────────────────────────────
 
 describe('ArticlePage — Listen / TTS', () => {

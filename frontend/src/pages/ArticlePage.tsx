@@ -15,6 +15,7 @@ import {
   Loader2,
   Volume2,
   Square,
+  Share2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchArticle, fetchArticleBody, fetchArticleAudioUrl, fetchArticleInsights } from '@/api';
@@ -269,6 +270,16 @@ export function ArticlePage() {
     audioMutation.mutate();
   }
 
+  async function handleShare() {
+    if (!article) return;
+    if (navigator.share) {
+      await navigator.share({ title: article.title, url: article.url });
+    } else {
+      await navigator.clipboard.writeText(article.url);
+      toast('Link copied!');
+    }
+  }
+
   // Touch swipe
   const swipeRef = useRef<{ x: number; y: number } | null>(null);
   const [swipeDx, setSwipeDx] = useState(0);
@@ -518,7 +529,7 @@ export function ArticlePage() {
         data-testid="action-bar"
         className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
       >
-        <div className="mx-auto max-w-2xl grid grid-cols-6 gap-1 p-2">
+        <div className="mx-auto max-w-2xl grid grid-cols-7 gap-1 p-2">
           <ActionBtn
             onClick={() => void doStar()}
             icon={Star}
@@ -552,6 +563,7 @@ export function ArticlePage() {
             }
             disabled={audioState === 'loading'}
           />
+          <ActionBtn onClick={() => void handleShare()} icon={Share2} label="Share" />
         </div>
       </div>
     </div>

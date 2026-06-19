@@ -13,3 +13,8 @@ data/*.db-*
 .worktrees/
 .claude/settings.local.json
 .claude/worktrees/
+
+# Android signing keystores — NEVER commit; store in GitHub Actions secrets
+android/*.keystore
+android/*.jks
+android/*.p12

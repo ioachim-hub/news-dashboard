@@ -23,6 +23,7 @@ export default defineConfig({
         'icons/icon-192.png',
         'icons/icon-512.png',
         'icons/icon-512-maskable.png',
+        'icons/icon-monochrome-512.png',
         'icons/icon-monochrome.svg',
       ],
       manifest: false,

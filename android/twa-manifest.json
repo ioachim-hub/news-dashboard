@@ -1,0 +1,48 @@
+{
+  "packageId": "ro.lihor.newsdashboard",
+  "host": "news.lihor.ro",
+  "name": "News Dashboard",
+  "launcherName": "News",
+  "display": "standalone",
+  "orientation": "default",
+  "themeColor": "#221f1a",
+  "navigationColor": "#221f1a",
+  "navigationColorDark": "#221f1a",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#faf8f5",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://news.lihor.ro/icons/icon-512.png",
+  "maskableIconUrl": "https://news.lihor.ro/icons/icon-512-maskable.png",
+  "monochromeIconUrl": "https://news.lihor.ro/icons/icon-monochrome-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://news.lihor.ro/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    },
+    "playBilling": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://news.lihor.ro/",
+  "minSdkVersion": 24,
+  "fingerprints": [],
+  "retainedBundles": []
+}

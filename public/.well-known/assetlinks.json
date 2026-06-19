@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ro.lihor.newsdashboard",
+      "sha256_cert_fingerprints": [
+        "C6:AC:CD:86:57:77:00:3D:26:6A:DD:23:C7:38:29:0C:49:C2:D6:E9:31:1C:44:E2:43:97:2A:81:9E:1A:35:EE"
+      ]
+    }
+  }
+]

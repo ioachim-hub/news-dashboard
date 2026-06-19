@@ -1,0 +1,71 @@
+name: Android APK
+
+# Build and sign the TWA APK on demand or when android/ changes.
+# The signed APK is uploaded as a workflow artifact.
+#
+# Required repository secrets:
+#   ANDROID_KEYSTORE_BASE64   — base64-encoded android.keystore (JKS)
+#   ANDROID_KEYSTORE_PASSWORD — keystore password
+#   ANDROID_KEY_ALIAS         — key alias inside the keystore
+#   ANDROID_KEY_PASSWORD      — key entry password
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['android/**']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & sign APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17 is required by Android Gradle Plugin 8.x
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Android SDK — installs build-tools, platform-tools, and cmdline-tools
+      - uses: android-actions/setup-android@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Decode the base64 keystore secret into the location twa-manifest.json expects
+      - name: Decode keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/android.keystore
+
+      # Bubblewrap reads twa-manifest.json, generates the Gradle project, builds,
+      # and signs the APK in one step. Passwords come via CLI flags so the
+      # prompts are skipped in non-interactive CI.
+      - name: Build signed APK
+        working-directory: android
+        run: |
+          npx --yes @bubblewrap/cli@1.24.1 build \
+            --skipPwaValidation \
+            --signingKeyPassword "${{ secrets.ANDROID_KEY_PASSWORD }}" \
+            --signingKeyKeystorePassword "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+
+      # Locate the signed APK (Bubblewrap outputs to working dir or app/build/)
+      - name: Find APK
+        id: apk
+        run: |
+          APK=$(find android -name "*.apk" | grep -v unsigned | head -1)
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "Found APK: $APK"
+          ls -lh "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-dashboard-apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30

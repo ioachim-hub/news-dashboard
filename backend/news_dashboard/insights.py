@@ -19,9 +19,13 @@ logger = logging.getLogger(__name__)
 _MODEL = "gpt-4o-mini"
 _MAX_CHARS = 8_000
 _PROMPT = (
-    "Given this news article, generate 3-5 concise bullet points explaining "
-    "why this story matters and what impact it could have. "
-    "Be specific and insightful. "
+    "You are analyzing a news article. Based ONLY on the information explicitly stated in the "
+    "article text below, generate 3-5 concise bullet points explaining why this story matters "
+    "and what its potential impact is. "
+    "Ground every bullet strictly in what the article actually says — do not add context, "
+    "speculation, or general knowledge about the topic that is not stated in the article. "
+    "If the article text does not clearly support a takeaway, return fewer bullets rather than "
+    "inventing one. "
     "Return only the bullet points, one per line, starting with '•'."
 )
 
@@ -104,6 +108,10 @@ def get_or_generate_insights(
 
     article = get_article(article_id, user_id=user_id)
     if article is None:
+        return []
+
+    # Require a fetched article body — do not generate from headline/summary alone
+    if not str(article.get("body") or "").strip():
         return []
 
     bullets = generate_insights(article)

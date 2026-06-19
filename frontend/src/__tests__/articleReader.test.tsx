@@ -359,7 +359,7 @@ describe('ArticlePage — touch gesture state', () => {
 
 // ─── AI insights ─────────────────────────────────────────────────────────────
 
-describe('ArticlePage — AI insights', () => {
+describe('ArticlePage — AI insights (on-demand)', () => {
   beforeEach(() => {
     vi.spyOn(api, 'fetchArticle').mockResolvedValue(
       makeArticle({ body_status: 'ok', body: 'Full article text.' })
@@ -369,36 +369,69 @@ describe('ArticlePage — AI insights', () => {
     );
   });
 
-  it('shows insights section with bullets when loaded', async () => {
+  it('does NOT auto-fetch insights on mount', async () => {
+    const insightsSpy = vi.spyOn(api, 'fetchArticleInsights').mockResolvedValue([]);
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    expect(insightsSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows "Key takeaways" button in idle state', async () => {
+    renderReader();
+    await waitFor(() => screen.getByText('Test Article Title'));
+    expect(screen.getByTestId('insights-button')).toBeTruthy();
+    expect(screen.getByText('Key takeaways')).toBeTruthy();
+  });
+
+  it('clicking the button triggers insights fetch', async () => {
+    const insightsSpy = vi
+      .spyOn(api, 'fetchArticleInsights')
+      .mockReturnValue(new Promise(() => undefined));
+    renderReader();
+    await waitFor(() => screen.getByTestId('insights-button'));
+    await userEvent.click(screen.getByTestId('insights-button'));
+    expect(insightsSpy).toHaveBeenCalledWith('42');
+  });
+
+  it('shows analyzing spinner after button click while loading', async () => {
+    vi.spyOn(api, 'fetchArticleInsights').mockReturnValue(new Promise(() => undefined));
+    renderReader();
+    await waitFor(() => screen.getByTestId('insights-button'));
+    await userEvent.click(screen.getByTestId('insights-button'));
+    await waitFor(() => expect(screen.getByText('Analyzing…')).toBeTruthy());
+    expect(screen.queryByTestId('insights-button')).toBeNull();
+  });
+
+  it('shows bullet list after button click when insights return', async () => {
     vi.spyOn(api, 'fetchArticleInsights').mockResolvedValue([
       'First insight bullet',
       'Second insight bullet',
     ]);
     renderReader();
+    await waitFor(() => screen.getByTestId('insights-button'));
+    await userEvent.click(screen.getByTestId('insights-button'));
     await waitFor(() => expect(screen.getByText('First insight bullet')).toBeTruthy());
     expect(screen.getByText('Second insight bullet')).toBeTruthy();
     expect(screen.getByTestId('insights-section')).toBeTruthy();
+    expect(screen.queryByTestId('insights-button')).toBeNull();
   });
 
-  it('shows analyzing spinner while insights are loading', async () => {
-    vi.spyOn(api, 'fetchArticleInsights').mockReturnValue(new Promise(() => undefined));
-    renderReader();
-    await waitFor(() => screen.getByText('Test Article Title'));
-    expect(screen.getByText('Analyzing…')).toBeTruthy();
-  });
-
-  it('hides insights section on 501 error', async () => {
+  it('hides insights section and button on error after click', async () => {
     vi.spyOn(api, 'fetchArticleInsights').mockRejectedValue(new Error('501 Not Implemented'));
     renderReader();
-    await waitFor(() => screen.getByText('Test Article Title'));
+    await waitFor(() => screen.getByTestId('insights-button'));
+    await userEvent.click(screen.getByTestId('insights-button'));
     await waitFor(() => expect(screen.queryByTestId('insights-section')).toBeNull());
+    expect(screen.queryByTestId('insights-button')).toBeNull();
   });
 
-  it('hides insights section when bullets list is empty', async () => {
+  it('hides insights section when bullets list is empty after click', async () => {
     vi.spyOn(api, 'fetchArticleInsights').mockResolvedValue([]);
     renderReader();
-    await waitFor(() => screen.getByText('Test Article Title'));
+    await waitFor(() => screen.getByTestId('insights-button'));
+    await userEvent.click(screen.getByTestId('insights-button'));
     await waitFor(() => expect(screen.queryByTestId('insights-section')).toBeNull());
+    expect(screen.queryByTestId('insights-button')).toBeNull();
   });
 });
 
@@ -412,7 +445,6 @@ describe('ArticlePage — Share button', () => {
     vi.spyOn(api, 'fetchArticleBody').mockResolvedValue(
       makeArticle({ body_status: 'ok', body: 'Full article text.' })
     );
-    vi.spyOn(api, 'fetchArticleInsights').mockResolvedValue([]);
   });
 
   it('shows Share button in the action bar', async () => {

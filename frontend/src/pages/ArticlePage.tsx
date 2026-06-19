@@ -17,6 +17,7 @@ import {
   Volume2,
   Square,
   Share2,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchArticle, fetchArticleBody, fetchArticleAudioUrl, fetchArticleInsights } from '@/api';
@@ -160,16 +161,8 @@ export function ArticlePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const {
-    data: insightBullets,
-    isLoading: insightsLoading,
-    isError: insightsError,
-  } = useQuery({
-    queryKey: ['article-insights', id],
-    queryFn: () => fetchArticleInsights(id!),
-    enabled: !!id,
-    retry: false,
-    staleTime: Infinity,
+  const insightsMutation = useMutation({
+    mutationFn: () => fetchArticleInsights(id!),
   });
 
   // Prev/next navigation from sessionStorage list
@@ -448,36 +441,46 @@ export function ArticlePage() {
               </div>
             )}
 
-            {/* AI insights — hidden on 501/error, spinner while loading */}
-            {!insightsError &&
-              (insightsLoading || (insightBullets && insightBullets.length > 0)) && (
-                <div
-                  className="mt-4 rounded-lg border border-border bg-surface/40 px-4 py-3"
-                  data-testid="insights-section"
-                >
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-subtle mb-2">
-                    Key takeaways
-                  </div>
-                  {insightsLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="size-3.5 animate-spin" />
-                      <span>Analyzing…</span>
-                    </div>
-                  ) : (
-                    <ul className="space-y-1.5">
-                      {insightBullets!.map((bullet, i) => (
-                        <li
-                          key={i}
-                          className="flex items-start gap-2 text-[13px] leading-snug text-foreground"
-                        >
-                          <span className="mt-0.5 shrink-0 text-accent">•</span>
-                          <span>{bullet}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+            {/* AI insights — on-demand button → loading → bullet list */}
+            {insightsMutation.isIdle && (
+              <button
+                onClick={() => insightsMutation.mutate()}
+                data-testid="insights-button"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-surface/40 px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-surface transition-colors"
+              >
+                <Sparkles className="size-3.5" strokeWidth={1.75} />
+                Key takeaways
+              </button>
+            )}
+            {insightsMutation.isPending && (
+              <div className="mt-4 rounded-lg border border-border bg-surface/40 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  <span>Analyzing…</span>
                 </div>
-              )}
+              </div>
+            )}
+            {insightsMutation.isSuccess && insightsMutation.data.length > 0 && (
+              <div
+                className="mt-4 rounded-lg border border-border bg-surface/40 px-4 py-3"
+                data-testid="insights-section"
+              >
+                <div className="text-[10px] font-medium uppercase tracking-wider text-subtle mb-2">
+                  Key takeaways
+                </div>
+                <ul className="space-y-1.5">
+                  {insightsMutation.data.map((bullet, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2 text-[13px] leading-snug text-foreground"
+                    >
+                      <span className="mt-0.5 shrink-0 text-accent">•</span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Why this matters */}
             <div className="mt-4 rounded-lg border-l-2 border-accent bg-surface/60 px-4 py-3">

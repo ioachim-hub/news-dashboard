@@ -31,6 +31,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-monochrome.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "monochrome"
     }
   ]
 }

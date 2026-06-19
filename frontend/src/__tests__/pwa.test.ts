@@ -67,6 +67,13 @@ describe('PWA manifest — icons', () => {
     expect(icon).toBeDefined();
   });
 
+  it('declares a monochrome icon (enables Android 13+ themed/tinted icons)', () => {
+    const icon = MANIFEST.icons.find((i) => i.purpose === 'monochrome');
+    expect(icon).toBeDefined();
+    expect(icon?.type).toBe('image/svg+xml');
+    expect(icon?.src).toBe('/icons/icon-monochrome.svg');
+  });
+
   it('all icon src paths start with /', () => {
     MANIFEST.icons.forEach((icon) => {
       expect(icon.src.startsWith('/')).toBe(true);

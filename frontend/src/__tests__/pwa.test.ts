@@ -67,11 +67,16 @@ describe('PWA manifest — icons', () => {
     expect(icon).toBeDefined();
   });
 
-  it('declares a monochrome icon (enables Android 13+ themed/tinted icons)', () => {
-    const icon = MANIFEST.icons.find((i) => i.purpose === 'monochrome');
-    expect(icon).toBeDefined();
-    expect(icon?.type).toBe('image/svg+xml');
-    expect(icon?.src).toBe('/icons/icon-monochrome.svg');
+  it('declares a PNG monochrome icon as primary (WebAPK minting compatibility)', () => {
+    const icons = MANIFEST.icons.filter((i) => i.purpose === 'monochrome');
+    expect(icons.length).toBeGreaterThanOrEqual(2);
+    // PNG must come first — WebAPK minting processes explicit-size PNGs more reliably than SVG
+    expect(icons[0].src).toBe('/icons/icon-monochrome-512.png');
+    expect(icons[0].sizes).toBe('512x512');
+    expect(icons[0].type).toBe('image/png');
+    // SVG fallback for forward compat
+    const svg = icons.find((i) => i.type === 'image/svg+xml');
+    expect(svg?.src).toBe('/icons/icon-monochrome.svg');
   });
 
   it('all icon src paths start with /', () => {

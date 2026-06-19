@@ -161,6 +161,27 @@ def test_generate_insights_returns_empty_list_for_empty_article() -> None:
     assert result == []
 
 
+def test_generate_insights_prompt_grounds_in_article_text() -> None:
+    """Prompt must explicitly forbid speculation beyond article content."""
+    mock_completion = MagicMock()
+    mock_completion.choices[0].message.content = "• A bullet"
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_completion
+
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+        patch("openai.OpenAI", return_value=mock_client),
+    ):
+        generate_insights(_ARTICLE)
+
+    prompt_text: str = mock_client.chat.completions.create.call_args.kwargs["messages"][0][
+        "content"
+    ]
+    assert "ONLY" in prompt_text
+    assert "speculation" in prompt_text
+    assert "fewer bullets" in prompt_text
+
+
 # ── get_or_generate_insights ──────────────────────────────────────────────────
 
 
@@ -257,3 +278,48 @@ def test_get_or_generate_insights_second_call_uses_cache(pg_clean: str) -> None:
 def test_get_or_generate_insights_returns_empty_for_missing_article(pg_clean: str) -> None:
     result = get_or_generate_insights(99999, database_url=pg_clean)
     assert result == []
+
+
+def test_get_or_generate_insights_returns_empty_when_body_not_fetched(pg_clean: str) -> None:
+    """Must not call AI when body is absent — prevents hallucination from headline alone."""
+    article_id = _seed_article(pg_clean)
+
+    mock_client = MagicMock()
+    fake_article_no_body = {
+        "id": article_id,
+        "title": "Test Headline",
+        "body": None,
+        "summary": "A short summary.",
+    }
+
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+        patch("openai.OpenAI", return_value=mock_client),
+        patch("news_dashboard.insights.get_article", return_value=fake_article_no_body),
+    ):
+        result = get_or_generate_insights(article_id, database_url=pg_clean)
+
+    assert result == []
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_get_or_generate_insights_returns_empty_when_body_is_empty_string(pg_clean: str) -> None:
+    article_id = _seed_article(pg_clean)
+
+    mock_client = MagicMock()
+    fake_article_empty_body = {
+        "id": article_id,
+        "title": "Test Headline",
+        "body": "   ",
+        "summary": "A short summary.",
+    }
+
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+        patch("openai.OpenAI", return_value=mock_client),
+        patch("news_dashboard.insights.get_article", return_value=fake_article_empty_body),
+    ):
+        result = get_or_generate_insights(article_id, database_url=pg_clean)
+
+    assert result == []
+    mock_client.chat.completions.create.assert_not_called()

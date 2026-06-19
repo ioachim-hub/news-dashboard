@@ -86,8 +86,9 @@ jobs:
           # Primary source of truth
           echo "$V" > VERSION
 
-          # Android Gradle build file
-          sed -i "s/versionCode [0-9]*/versionCode $CODE/" android/app/build.gradle
+          # Android Gradle build file — patterns require at least one digit to
+          # avoid matching empty strings (POSIX BRE: [0-9][0-9]* = one or more)
+          sed -i "s/versionCode [0-9][0-9]*/versionCode $CODE/" android/app/build.gradle
           sed -i "s/versionName \"[0-9][^\"]*\"/versionName \"$V\"/" android/app/build.gradle
 
           # android/twa-manifest.json

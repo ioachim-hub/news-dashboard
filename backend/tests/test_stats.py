@@ -175,7 +175,8 @@ def _insert_article(  # noqa: PLR0913
     saved_at: str | None = None,
     read_at: str | None = None,
     archived_at: str | None = None,
-) -> None:
+) -> int:
+    """Insert an article and return its id."""
     if discovered_at is None:
         discovered_at = datetime.now(timezone.utc).isoformat()
     with connect(db_path) as conn:
@@ -186,7 +187,7 @@ def _insert_article(  # noqa: PLR0913
             " ON CONFLICT(slug) DO UPDATE SET name = EXCLUDED.name",
             (source_name, category),
         )
-        conn.execute(
+        row = conn.execute(
             """
             INSERT INTO articles(
               url, canonical_url, title, source_slug, source_name, category, kind,
@@ -194,6 +195,7 @@ def _insert_article(  # noqa: PLR0913
               status, discovered_at, skipped_at, saved_at, read_at, archived_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (url) DO NOTHING
+            RETURNING id
             """,
             (
                 url,
@@ -215,52 +217,164 @@ def _insert_article(  # noqa: PLR0913
                 read_at,
                 archived_at,
             ),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
+def _insert_user(db_path: Path) -> int:
+    """Insert a test user and return their id."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "INSERT INTO users(username, password_hash) VALUES ('tester', 'x') RETURNING id"
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
+def _insert_uas(  # noqa: PLR0913
+    db_path: Path,
+    *,
+    user_id: int,
+    article_id: int,
+    state: str = "today",
+    starred: bool = False,
+    done_at: str | None = None,
+    skipped_at: str | None = None,
+    archived_at: str | None = None,
+    starred_at: str | None = None,
+) -> None:
+    """Upsert a user_article_state row."""
+    now_ts = datetime.now(timezone.utc).isoformat()
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_article_state(
+              user_id, article_id, state, starred,
+              done_at, skipped_at, archived_at, starred_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, article_id) DO UPDATE SET
+              state      = EXCLUDED.state,
+              starred    = EXCLUDED.starred,
+              done_at    = EXCLUDED.done_at,
+              skipped_at = EXCLUDED.skipped_at,
+              archived_at = EXCLUDED.archived_at,
+              starred_at = EXCLUDED.starred_at,
+              updated_at = EXCLUDED.updated_at
+            """,
+            (
+                user_id,
+                article_id,
+                state,
+                starred,
+                done_at,
+                skipped_at,
+                archived_at,
+                starred_at,
+                now_ts,
+            ),
         )
 
 
-def test_article_counts_returns_status_counts(tmp_path: Path) -> None:
+def test_article_counts_reads_user_article_state(tmp_path: Path) -> None:
+    """article_counts must read user_article_state, not the legacy articles.status."""
     db_path = tmp_path / "counts.db"
     init_db(db_path)
-    _insert_article(db_path, url="u1", source_name="S", status="new")
-    _insert_article(db_path, url="u2", source_name="S", status="new")
-    _insert_article(db_path, url="u3", source_name="S", status="skipped")
-    _insert_article(db_path, url="u4", source_name="S", status="saved")
+    user_id = _insert_user(db_path)
+    now_ts = datetime.now(timezone.utc).isoformat()
+
+    _insert_article(db_path, url="u1", source_name="S")  # no UAS → new/inbox
+    _insert_article(db_path, url="u2", source_name="S")  # no UAS → new/inbox
+    a3 = _insert_article(db_path, url="u3", source_name="S")
+    a4 = _insert_article(db_path, url="u4", source_name="S")
+    a5 = _insert_article(db_path, url="u5", source_name="S")
+
+    _insert_uas(db_path, user_id=user_id, article_id=a3, state="skipped", skipped_at=now_ts)
+    _insert_uas(db_path, user_id=user_id, article_id=a4, state="done", done_at=now_ts)
+    _insert_uas(
+        db_path, user_id=user_id, article_id=a5, state="today", starred=True, starred_at=now_ts
+    )
 
     result = article_counts(db_path)
+    assert result["new"] == 2  # a1, a2 have no UAS row
+    assert result["skipped"] == 1  # a3
+    assert result["read"] == 1  # a4 (state='done')
+    assert result["saved"] == 1  # a5 (starred=True)
+    assert result["archived"] == 0
+
+
+def test_article_counts_regression_articles_status_not_counted(tmp_path: Path) -> None:
+    """Regression: articles.status='skipped' with no UAS row must NOT appear in skipped count."""
+    db_path = tmp_path / "counts_reg.db"
+    init_db(db_path)
+    # Insert with legacy articles.status set — the state machine never does this for real users
+    _insert_article(db_path, url="legacy1", source_name="S", status="skipped")
+    _insert_article(db_path, url="legacy2", source_name="S", status="read")
+
+    result = article_counts(db_path)
+    # No UAS rows → both articles appear as "new/inbox", nothing as handled
     assert result["new"] == 2
-    assert result["skipped"] == 1
-    assert result["saved"] == 1
+    assert result["skipped"] == 0
     assert result["read"] == 0
+    assert result["saved"] == 0
 
 
-def test_triage_metrics_computes_handled_and_save_rates(tmp_path: Path) -> None:
+def test_triage_metrics_reads_user_article_state(tmp_path: Path) -> None:
+    """triage_metrics must read user_article_state for handled/saved counts and triage time."""
     db_path = tmp_path / "triage.db"
     init_db(db_path)
+    user_id = _insert_user(db_path)
     now = datetime.now(timezone.utc)
     recent = (now - timedelta(days=2)).isoformat()
-    _insert_article(db_path, url="u1", source_name="S", status="new", discovered_at=recent)
-    _insert_article(
-        db_path,
-        url="u2",
-        source_name="S",
-        status="skipped",
-        discovered_at=recent,
-        skipped_at=(now - timedelta(days=2, hours=-1)).isoformat(),
-    )
-    _insert_article(
-        db_path,
-        url="u3",
-        source_name="S",
-        status="saved",
-        discovered_at=recent,
-        saved_at=(now - timedelta(days=2, hours=-2)).isoformat(),
+    action_ts = (now - timedelta(days=2, seconds=-3600)).isoformat()  # 1 h after discovery
+
+    a1 = _insert_article(db_path, url="u1", source_name="S", discovered_at=recent)  # no action
+    a2 = _insert_article(db_path, url="u2", source_name="S", discovered_at=recent)
+    a3 = _insert_article(db_path, url="u3", source_name="S", discovered_at=recent)
+
+    _insert_uas(db_path, user_id=user_id, article_id=a2, state="skipped", skipped_at=action_ts)
+    _insert_uas(
+        db_path, user_id=user_id, article_id=a3, state="today", starred=True, starred_at=action_ts
     )
 
     result = triage_metrics(db_path)
     assert result["articles_this_week"] == 3
-    assert result["handled_rate"] == 67  # 2/3 = 66.6% -> 67
-    assert result["save_rate"] == 33  # 1/3 = 33.3% -> 33
+    assert result["handled_rate"] == 67  # 2/3 → 66.6 % → 67
+    assert result["save_rate"] == 33  # 1/3 → 33.3 % → 33
     assert result["avg_triage_hours"] > 0
+    _ = a1  # referenced via article count only
+
+
+def test_triage_metrics_regression_articles_status_not_counted(tmp_path: Path) -> None:
+    """Regression: articles.status='skipped' with no UAS row must show handled_rate=0."""
+    db_path = tmp_path / "triage_reg.db"
+    init_db(db_path)
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(days=2)).isoformat()
+    skipped_ts = (now - timedelta(days=2, seconds=-3600)).isoformat()
+
+    # Legacy rows — articles.status and articles.skipped_at set but no UAS row
+    _insert_article(
+        db_path,
+        url="leg1",
+        source_name="S",
+        status="skipped",
+        discovered_at=recent,
+        skipped_at=skipped_ts,
+    )
+    _insert_article(
+        db_path,
+        url="leg2",
+        source_name="S",
+        status="saved",
+        discovered_at=recent,
+        saved_at=skipped_ts,
+    )
+
+    result = triage_metrics(db_path)
+    assert result["articles_this_week"] == 2
+    assert result["handled_rate"] == 0  # no UAS rows → nothing handled
+    assert result["save_rate"] == 0
 
 
 def test_source_quality_aggregates_per_source(tmp_path: Path) -> None:

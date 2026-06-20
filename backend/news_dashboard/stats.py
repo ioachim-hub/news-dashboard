@@ -7,9 +7,6 @@ from typing import Any
 
 from .db import connect, init_db, placeholders, row_to_dict
 
-# Status values that count as "handled" (not sitting in inbox)
-_HANDLED_STATUSES = ("read", "saved", "skipped", "archived")
-
 
 def parse_range(from_value: str, to_value: str) -> tuple[datetime, datetime]:
     start = _parse_datetime(from_value)
@@ -150,18 +147,52 @@ def ingested_vs_handled(db_path: Path | None = None, days: int = 14) -> list[dic
 
 
 def article_counts(db_path: Path | None = None) -> dict[str, int]:
-    """Return total article count per status across all time."""
+    """Return total article count per status across all time.
+
+    Reads from user_article_state (the live state machine table) rather than
+    the legacy articles.status column, which is never updated by the current
+    workflow.  COUNT(DISTINCT a.id) avoids double-counting when multiple users
+    have acted on the same article.
+    """
     init_db(db_path)
     with connect(db_path) as conn:
-        rows = conn.execute("SELECT status, COUNT(*) AS n FROM articles GROUP BY status").fetchall()
-    counts = {r["status"]: r["n"] for r in [row_to_dict(row) for row in rows]}
-    for status in ("new", "read", "saved", "skipped", "archived"):
-        counts.setdefault(status, 0)
-    return counts
+        row = row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                  COUNT(DISTINCT a.id)
+                    FILTER (WHERE uas.article_id IS NULL
+                               OR (uas.state IN ('today', 'later')
+                                   AND NOT uas.starred))           AS new,
+                  COUNT(DISTINCT a.id)
+                    FILTER (WHERE uas.starred = TRUE)              AS saved,
+                  COUNT(DISTINCT a.id)
+                    FILTER (WHERE uas.state = 'done')              AS read,
+                  COUNT(DISTINCT a.id)
+                    FILTER (WHERE uas.state = 'skipped')           AS skipped,
+                  COUNT(DISTINCT a.id)
+                    FILTER (WHERE uas.state = 'archived')          AS archived
+                FROM articles a
+                LEFT JOIN user_article_state uas ON uas.article_id = a.id
+                """
+            ).fetchone()
+        )
+    return {
+        "new": _int_value(row["new"]),
+        "saved": _int_value(row["saved"]),
+        "read": _int_value(row["read"]),
+        "skipped": _int_value(row["skipped"]),
+        "archived": _int_value(row["archived"]),
+    }
 
 
 def triage_metrics(db_path: Path | None = None) -> dict[str, Any]:
-    """Return habit metrics for articles discovered in the last 7 days."""
+    """Return habit metrics for articles discovered in the last 7 days.
+
+    All counts read from user_article_state rather than the legacy
+    articles.status / articles.*_at columns, which are never written by the
+    current state machine when a user_id is present.
+    """
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     init_db(db_path)
     with connect(db_path) as conn:
@@ -172,20 +203,30 @@ def triage_metrics(db_path: Path | None = None) -> dict[str, Any]:
             ).fetchone()
         )["n"]
 
-        status_placeholders = placeholders(_HANDLED_STATUSES)
+        # handled = any explicit action: state transition OR starred
         handled = row_to_dict(
             conn.execute(
-                (
-                    "SELECT COUNT(*) AS n FROM articles"
-                    f" WHERE discovered_at >= %s AND status IN ({status_placeholders})"
-                ),
-                (week_ago, *_HANDLED_STATUSES),
+                """
+                SELECT COUNT(DISTINCT a.id) AS n
+                FROM articles a
+                JOIN user_article_state uas ON uas.article_id = a.id
+                WHERE a.discovered_at >= %s
+                  AND (uas.state IN ('done', 'skipped', 'archived')
+                       OR uas.starred = TRUE)
+                """,
+                (week_ago,),
             ).fetchone()
         )["n"]
 
+        # saved = starred (bookmark) action in the current state model
         saved = row_to_dict(
             conn.execute(
-                "SELECT COUNT(*) AS n FROM articles WHERE discovered_at >= %s AND status = 'saved'",
+                """
+                SELECT COUNT(DISTINCT a.id) AS n
+                FROM articles a
+                JOIN user_article_state uas ON uas.article_id = a.id
+                WHERE a.discovered_at >= %s AND uas.starred = TRUE
+                """,
                 (week_ago,),
             ).fetchone()
         )["n"]
@@ -194,12 +235,16 @@ def triage_metrics(db_path: Path | None = None) -> dict[str, Any]:
             row_to_dict(r)
             for r in conn.execute(
                 """
-                SELECT discovered_at,
-                       COALESCE(skipped_at, saved_at, read_at, archived_at) AS triaged_at
-                FROM articles
-                WHERE discovered_at >= %s
-                  AND (skipped_at IS NOT NULL OR saved_at IS NOT NULL
-                       OR read_at IS NOT NULL OR archived_at IS NOT NULL)
+                SELECT a.discovered_at,
+                       COALESCE(uas.done_at, uas.skipped_at, uas.archived_at,
+                                uas.starred_at) AS triaged_at
+                FROM articles a
+                JOIN user_article_state uas ON uas.article_id = a.id
+                WHERE a.discovered_at >= %s
+                  AND (uas.done_at IS NOT NULL
+                       OR uas.skipped_at IS NOT NULL
+                       OR uas.archived_at IS NOT NULL
+                       OR uas.starred_at IS NOT NULL)
                 """,
                 (week_ago,),
             ).fetchall()

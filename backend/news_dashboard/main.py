@@ -293,6 +293,21 @@ def _embed_article_background(article_id: int) -> None:
         logger.debug("Background embedding skipped for article %d", article_id, exc_info=True)
 
 
+# ── Public version endpoint (no auth) ────────────────────────────────────────
+
+_VERSION_FILE = Path(__file__).resolve().parents[2] / "VERSION"
+
+
+@app.get("/api/version")
+def version_endpoint() -> dict[str, str]:
+    """Return the running app version from the VERSION file."""
+    try:
+        version = _VERSION_FILE.read_text().strip()
+    except OSError:
+        version = "unknown"
+    return {"version": version}
+
+
 # ── Authenticated API router ─────────────────────────────────────────────────
 
 api = APIRouter(dependencies=[Depends(require_auth)])

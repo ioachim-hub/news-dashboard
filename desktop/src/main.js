@@ -1,11 +1,26 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
 const APP_URL = 'https://news.lihor.ro';
 const isDev = !app.isPackaged;
+
+// ── Auto-updater configuration ────────────────────────────────────────────────
+//
+// electron-updater fetches latest-mac.yml / latest.yml from the GitHub Release
+// assets to discover new versions, then downloads and installs the new build.
+// autoDownload is disabled so the user controls when the download begins.
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+
+// In dev mode, skip auto-update entirely (no packaged binary to replace).
+if (isDev) {
+  autoUpdater.forceDevUpdateConfig = false;
+}
 
 // ── Window state persistence ──────────────────────────────────────────────────
 
@@ -45,7 +60,8 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false, // must be false to allow preload to use require()
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -82,6 +98,45 @@ function createWindow() {
   return win;
 }
 
+// ── Auto-updater IPC bridge ───────────────────────────────────────────────────
+//
+// The renderer (web app at news.lihor.ro) calls window.electronAPI.*
+// which the preload converts to these IPC messages.
+
+function setupUpdater(win) {
+  // Renderer → main: trigger actions.
+  ipcMain.on('updater:check', () => {
+    if (!isDev) autoUpdater.checkForUpdates().catch(() => {});
+  });
+  ipcMain.on('updater:download', () => {
+    autoUpdater.downloadUpdate().catch(() => {});
+  });
+  ipcMain.on('updater:quit-and-install', () => {
+    autoUpdater.quitAndInstall();
+  });
+
+  // Main → renderer: forward updater events.
+  autoUpdater.on('update-available', (info) => {
+    win.webContents.send('updater:available', info);
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    win.webContents.send('updater:not-available', info);
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    win.webContents.send('updater:downloaded', info);
+  });
+  autoUpdater.on('download-progress', (progress) => {
+    win.webContents.send('updater:progress', {
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+    });
+  });
+  autoUpdater.on('error', (err) => {
+    win.webContents.send('updater:error', err.message ?? String(err));
+  });
+}
+
 // ── Application menu ──────────────────────────────────────────────────────────
 
 function buildMenu(win) {
@@ -98,9 +153,7 @@ function buildMenu(win) {
       accelerator: 'CmdOrCtrl+Shift+R',
       click: (_, w) => (w || win).webContents.reloadIgnoringCache(),
     },
-    ...(isDev
-      ? [{ type: 'separator' }, { role: 'toggleDevTools' }]
-      : []),
+    ...(isDev ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : []),
     { type: 'separator' },
     { role: 'resetZoom' },
     { role: 'zoomIn' },
@@ -146,9 +199,7 @@ function buildMenu(win) {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
-        ...(isMac
-          ? [{ type: 'separator' }, { role: 'front' }]
-          : [{ role: 'close' }]),
+        ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : [{ role: 'close' }]),
       ],
     },
   ];
@@ -158,14 +209,21 @@ function buildMenu(win) {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
+// Synchronous reply for the preload's appVersion getter.
+ipcMain.on('get-app-version', (event) => {
+  event.returnValue = app.getVersion();
+});
+
 app.whenReady().then(() => {
   const win = createWindow();
   Menu.setApplicationMenu(buildMenu(win));
+  setupUpdater(win);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const w = createWindow();
       Menu.setApplicationMenu(buildMenu(w));
+      setupUpdater(w);
     }
   });
 });

@@ -193,12 +193,16 @@ jobs:
         working-directory: desktop
         run: npm run build:mac
 
-      - name: Find DMG
+      - name: Find DMG and update manifest
         id: dmg
         run: |
           DMG=$(find desktop/dist -name "*.dmg" | head -1)
           echo "path=$DMG" >> "$GITHUB_OUTPUT"
           ls -lh "$DMG"
+          # electron-builder generates latest-mac.yml alongside the DMG.
+          # electron-updater fetches this file to discover new versions.
+          MANIFEST=$(find desktop/dist -name "latest-mac.yml" | head -1)
+          echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         env:
@@ -212,8 +216,14 @@ jobs:
 
           Built from ${{ needs.version.outputs.tag }}."
 
+          ASSETS="${{ steps.dmg.outputs.path }}"
+          MANIFEST="${{ steps.dmg.outputs.manifest }}"
+          if [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ]; then
+            ASSETS="$ASSETS $MANIFEST"
+          fi
+
           gh release create "desktop-v$V" \
-            "${{ steps.dmg.outputs.path }}" \
+            $ASSETS \
             --title "Desktop App v$V" \
             --notes "$NOTES" \
             --latest

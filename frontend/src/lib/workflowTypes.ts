@@ -14,6 +14,8 @@ export interface WorkflowArticle {
   reason: string;
   summary: string;
   signal: Signal;
+  /** Per-user recommendation score (0–100); undefined when not yet ranked. */
+  recommendationScore?: number;
   tags: string[];
   body?: string;
   bodyStatus: 'ok' | 'missing' | 'error';

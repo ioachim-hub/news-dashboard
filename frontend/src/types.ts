@@ -31,6 +31,8 @@ export interface Article {
   canonical_id?: number | null;
   body?: string | null;
   body_status?: 'ok' | 'missing' | 'error';
+  recommendation_score?: number | null;
+  recommendation_model?: string | null;
 }
 
 export interface User {

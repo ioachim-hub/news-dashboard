@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Star } from 'lucide-react';
 import type { WorkflowArticle } from '@/lib/workflowTypes';
 import { relativeTime, signalLabel } from '@/lib/format';
+import { recommendationLabel, RECOMMENDATION_LABEL_TEXT } from '@/lib/recommendation';
 import { cn } from '@/lib/utils';
 import { SwipeableRow } from './SwipeableRow';
 import { useTriageMutations } from '@/hooks/useTriageMutations';
@@ -20,10 +21,15 @@ function ArticleRowComponent({ article, focused, showLaterUntil }: Props) {
   const handleSkip = () => setState(article, 'skipped', 'Skipped');
   const handleStar = () => toggleStar(article);
 
-  const signalColor =
-    article.signal === 'high'
+  // Prefer the personalized recommendation band when the article has been ranked
+  // for this user; otherwise fall back to the importance-derived visual signal so
+  // unranked rows degrade gracefully instead of going blank.
+  const recLabel = recommendationLabel(article.recommendationScore);
+  const labelText = recLabel ? RECOMMENDATION_LABEL_TEXT[recLabel] : signalLabel(article.signal);
+  const labelColor =
+    recLabel === 'recommended' || (!recLabel && article.signal === 'high')
       ? 'text-signal-high'
-      : article.signal === 'mid'
+      : recLabel === 'relevant' || (!recLabel && article.signal === 'mid')
         ? 'text-signal-mid'
         : 'text-signal-low';
 
@@ -58,7 +64,13 @@ function ArticleRowComponent({ article, focused, showLaterUntil }: Props) {
         </h3>
         <p className="text-[13px] leading-snug text-foreground/80 line-clamp-1">{article.reason}</p>
         <div className="mt-1.5 flex items-center gap-2 text-[11px]">
-          <span className={cn('font-medium', signalColor)}>{signalLabel(article.signal)}</span>
+          <span
+            className={cn('font-medium', labelColor)}
+            data-testid="recommendation-label"
+            data-source={recLabel ? 'recommendation' : 'signal'}
+          >
+            {labelText}
+          </span>
           {showLaterUntil && article.later_until && (
             <>
               <span className="text-subtle">·</span>

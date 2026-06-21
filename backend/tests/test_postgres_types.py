@@ -176,6 +176,32 @@ def test_pg_list_articles_unstarred_filter(pg_env: str) -> None:
     assert any(a["id"] == aid_b for a in unstarred)
 
 
+def test_pg_list_articles_exposes_recommendation_metadata(pg_env: str) -> None:
+    """list_articles must surface recommendation_score/model for compact Today labels."""
+    from news_dashboard.ingest import list_articles
+    from news_dashboard.recommendations import upsert_recommendation_score
+
+    pg_url = pg_env
+    _add_global_source(pg_url, "pg-src-rec")
+    uid = _make_user(pg_url, "rec-user")
+    aid_scored = _add_article(pg_url, source_slug="pg-src-rec", url_suffix="rec-scored")
+    aid_unscored = _add_article(pg_url, source_slug="pg-src-rec", url_suffix="rec-unscored")
+
+    upsert_recommendation_score(uid, aid_scored, 82.5, model_version="semantic-hybrid-v1")
+
+    results = list_articles(state="today", user_id=uid)
+    by_id = {a["id"]: a for a in results}
+
+    scored = by_id[aid_scored]
+    assert scored["recommendation_score"] == pytest.approx(82.5)
+    assert scored["recommendation_model"] == "semantic-hybrid-v1"
+
+    # Articles without recommendation metadata degrade gracefully to None.
+    unscored = by_id[aid_unscored]
+    assert unscored["recommendation_score"] is None
+    assert unscored["recommendation_model"] is None
+
+
 def test_pg_list_articles_today_without_uas(pg_env: str) -> None:
     """list_articles state=today must work when no UAS row exists (NULL coalesces to false)."""
     from news_dashboard.ingest import list_articles

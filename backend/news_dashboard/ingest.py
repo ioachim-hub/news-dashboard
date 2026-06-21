@@ -994,7 +994,9 @@ def _list_articles_for_user(  # noqa: PLR0913
           uas.skipped_at  AS _uas_skipped_at,
           uas.archived_at AS _uas_archived_at,
           uas.later_until AS _uas_later_until,
-          uas.restored_at AS _uas_restored_at
+          uas.restored_at AS _uas_restored_at,
+          uar.recommendation_score AS _uar_recommendation_score,
+          uar.model_version        AS _uar_recommendation_model
         FROM articles a
         LEFT JOIN sources src ON src.slug = a.source_slug
         LEFT JOIN user_sources us_src ON us_src.user_id = %s AND us_src.source_slug = a.source_slug
@@ -1023,6 +1025,9 @@ def _list_articles_for_user(  # noqa: PLR0913
             d["archived_at"] = d.pop("_uas_archived_at", None)
             d["later_until"] = d.pop("_uas_later_until", None)
             d["restored_at"] = d.pop("_uas_restored_at", None)
+            rec_score = d.pop("_uar_recommendation_score", None)
+            d["recommendation_score"] = float(rec_score) if rec_score is not None else None
+            d["recommendation_model"] = d.pop("_uar_recommendation_model", None)
             articles.append(d)
         _attach_also_from(conn, articles)
         return articles

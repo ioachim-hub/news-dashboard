@@ -183,6 +183,12 @@ class UpdatePasswordRequest(BaseModel):
     password: str
 
 
+class GenerateUserRequest(BaseModel):
+    username: str
+    email: str | None = None
+    is_admin: bool = False
+
+
 # ── Public auth routes (no session required) ──────────────────────────────────
 
 public_router = APIRouter()
@@ -865,6 +871,41 @@ def admin_create_user(payload: CreateUserRequest) -> dict[str, Any]:
         )
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@admin.post("/users/generate")
+async def admin_generate_user(payload: GenerateUserRequest) -> dict[str, Any]:
+    """Create a user with a server-generated password and return the credentials.
+
+    The plaintext password is returned exactly once here so the admin can hand it
+    to the new user; it is never stored or retrievable afterwards.
+
+    When Keycloak SSO is enabled, local password login is disabled, so the user
+    must be created in Keycloak (with a one-time temporary password) for the
+    credentials to actually work. Otherwise the user is created in the local
+    ``users`` table.
+    """
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(status_code=422, detail="username is required")
+    password = secrets.token_urlsafe(12)
+
+    if keycloak_config().enabled:
+        from .keycloak_admin import create_keycloak_user
+
+        result = await create_keycloak_user(username, password, email=payload.email)
+        return {**result, "password": password, "provider": "keycloak"}
+
+    try:
+        user = create_user(
+            username,
+            password,
+            email=payload.email,
+            is_admin=payload.is_admin,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**user, "password": password, "provider": "password", "temporary": False}
 
 
 @admin.get("/users/{user_id}")

@@ -232,3 +232,59 @@ def test_admin_create_user_conflict_on_duplicate(tmp_db: Path) -> None:
     assert first.status_code == 200
     dup = client.post("/api/admin/users", json={"username": "frank", "password": "pw123456"})
     assert dup.status_code == 409
+
+
+def test_admin_generate_user_returns_credentials(tmp_db: Path) -> None:
+    client = TestClient(app)
+    resp = client.post("/api/admin/users/generate", json={"username": "grace"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["username"] == "grace"
+    assert body["is_admin"] is False
+    # The generated password is returned once and must actually log the user in.
+    assert isinstance(body["password"], str)
+    assert len(body["password"]) >= 12
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "grace", "password": body["password"]},
+    )
+    assert login.status_code == 200
+
+
+def test_admin_generate_user_rejects_blank_username(tmp_db: Path) -> None:
+    client = TestClient(app)
+    resp = client.post("/api/admin/users/generate", json={"username": "   "})
+    assert resp.status_code == 422
+
+
+def test_admin_generate_user_conflict_on_duplicate(tmp_db: Path) -> None:
+    client = TestClient(app)
+    first = client.post("/api/admin/users/generate", json={"username": "heidi"})
+    assert first.status_code == 200
+    dup = client.post("/api/admin/users/generate", json={"username": "heidi"})
+    assert dup.status_code == 409
+
+
+def test_admin_generate_user_uses_keycloak_when_enabled(
+    tmp_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _enable_keycloak(monkeypatch)
+    monkeypatch.setenv("KEYCLOAK_ADMIN_CLIENT_SECRET", "admin-secret")
+
+    captured: dict[str, Any] = {}
+
+    async def fake_create(username: str, password: str, **kwargs: Any) -> dict[str, Any]:
+        captured["username"] = username
+        captured["password"] = password
+        return {"id": "kc-1", "username": username, "email": None, "temporary": True}
+
+    monkeypatch.setattr("news_dashboard.keycloak_admin.create_keycloak_user", fake_create)
+    client = TestClient(app)
+    resp = client.post("/api/admin/users/generate", json={"username": "ivan"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "keycloak"
+    assert body["id"] == "kc-1"
+    assert body["temporary"] is True
+    assert body["password"] == captured["password"]
+    assert captured["username"] == "ivan"

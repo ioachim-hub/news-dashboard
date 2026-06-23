@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   Star,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,6 +38,17 @@ export const secondaryNavigationItems: NavigationItem[] = [
   { to: '/archive', label: 'Archive', icon: Archive },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
+
+// Shown in the secondary nav only for admin users.
+export const adminNavigationItem: NavigationItem = {
+  to: '/admin',
+  label: 'Users',
+  icon: Users,
+};
+
+export function secondaryNavigationItemsFor(isAdmin: boolean): NavigationItem[] {
+  return isAdmin ? [...secondaryNavigationItems, adminNavigationItem] : secondaryNavigationItems;
+}
 
 export const mobileNavigationItems = primaryNavigationItems.slice(0, 5);
 
@@ -83,5 +95,6 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/stats')) return 'Stats';
   if (pathname.startsWith('/archive')) return 'Archive';
   if (pathname.startsWith('/settings')) return 'Settings';
+  if (pathname.startsWith('/admin')) return 'Users';
   return 'Radar';
 }

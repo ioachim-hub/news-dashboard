@@ -41,6 +41,13 @@ app:
     clientSecret: ""
     # Comma-separated usernames that become app admins when first seen from Keycloak.
     adminUsernames: ioachim
+    # Optional. Confidential client (service account) used by the in-app admin
+    # page to create users via the Keycloak Admin REST API. The client needs the
+    # realm-management "manage-users" role. Defaults to clientId when unset.
+    adminClientId: ""
+    # Service-account secret for adminClientId. Leave empty to disable in-app
+    # user creation (the admin page then reports it is not configured).
+    adminClientSecret: ""
     # Override in CI/local deploy with a long random string.
     sessionSecret: ""
   ai:

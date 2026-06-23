@@ -19,6 +19,7 @@ import { StatsPage } from './pages/StatsPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ArticlePage } from './pages/ArticlePage';
+import { AdminPage } from './pages/AdminPage';
 import { BriefingsHistoryPage } from './pages/BriefingsHistoryPage';
 import { BriefingDetailPage } from './pages/BriefingDetailPage';
 
@@ -87,6 +88,7 @@ export const routes: RouteObject[] = [
       { path: 'stats', element: <StatsPage /> },
       { path: 'archive', element: <ArchivePage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'admin', element: <AdminPage /> },
 
       /* Legacy route redirects — remove when each migration slice lands */
       { path: 'inbox', element: <Navigate to="/today" replace /> },

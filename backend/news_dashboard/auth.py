@@ -31,6 +31,8 @@ class KeycloakConfig:
     client_id: str
     client_secret: str | None
     base_url: str
+    admin_client_id: str
+    admin_client_secret: str | None
 
     @property
     def public_realm_url(self) -> str:
@@ -61,14 +63,17 @@ def _strip_url(value: str | None) -> str:
 def keycloak_config() -> KeycloakConfig:
     public_server = _strip_url(os.getenv("KEYCLOAK_SERVER_URL"))
     internal_server = _strip_url(os.getenv("KEYCLOAK_INTERNAL_SERVER_URL")) or public_server
+    client_id = (os.getenv("KEYCLOAK_CLIENT_ID") or "news-dashboard").strip()
     return KeycloakConfig(
         enabled=_truthy(os.getenv("KEYCLOAK_AUTH_ENABLED")),
         public_server_url=public_server,
         internal_server_url=internal_server,
         realm=(os.getenv("KEYCLOAK_REALM") or "news-dashboard").strip(),
-        client_id=(os.getenv("KEYCLOAK_CLIENT_ID") or "news-dashboard").strip(),
+        client_id=client_id,
         client_secret=(os.getenv("KEYCLOAK_CLIENT_SECRET") or "").strip() or None,
         base_url=_strip_url(os.getenv("NEWS_DASHBOARD_BASE_URL")) or "http://localhost:8080",
+        admin_client_id=(os.getenv("KEYCLOAK_ADMIN_CLIENT_ID") or client_id).strip(),
+        admin_client_secret=(os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET") or "").strip() or None,
     )
 
 

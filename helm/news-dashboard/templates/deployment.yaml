@@ -84,6 +84,13 @@ spec:
                   key: KEYCLOAK_CLIENT_SECRET
             - name: KEYCLOAK_ADMIN_USERNAMES
               value: {{ .Values.app.auth.adminUsernames | quote }}
+            - name: KEYCLOAK_ADMIN_CLIENT_ID
+              value: {{ .Values.app.auth.adminClientId | quote }}
+            - name: KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "news-dashboard.fullname" . }}-auth
+                  key: KEYCLOAK_ADMIN_CLIENT_SECRET
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:

@@ -14,7 +14,7 @@ import {
   isNavigationItemActive,
   mobileNavigationItems,
   primaryNavigationItems,
-  secondaryNavigationItems,
+  secondaryNavigationItemsFor,
   type NavigationItem,
 } from '@/lib/navigation';
 
@@ -75,7 +75,7 @@ function DesktopRail({ pathname }: { pathname: string }) {
       </nav>
       <div className="mx-2 my-2 h-px bg-border" />
       <nav className="flex flex-col p-2 gap-0.5">
-        {secondaryNavigationItems.map((m) => {
+        {secondaryNavigationItemsFor(Boolean(user?.is_admin)).map((m) => {
           const Icon = m.icon;
           const active = isNavigationItemActive(m.to, pathname);
           return (
@@ -212,7 +212,7 @@ export function AppShell() {
                   )}
                 </SheetHeader>
                 <nav className="p-2">
-                  {secondaryNavigationItems.map((m) => {
+                  {secondaryNavigationItemsFor(Boolean(user?.is_admin)).map((m) => {
                     const Icon = m.icon;
                     const active = isNavigationItemActive(m.to, pathname);
                     return (

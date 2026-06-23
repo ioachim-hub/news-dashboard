@@ -247,6 +247,42 @@ export async function loginUser(username: string, password: string): Promise<Use
   });
 }
 
+export interface GeneratedUser {
+  id: number | string | null;
+  username: string;
+  email?: string | null;
+  is_admin?: boolean;
+  password: string;
+  provider: 'keycloak' | 'password';
+  temporary?: boolean;
+  created_at?: string | null;
+}
+
+export async function fetchAdminUsers(): Promise<User[]> {
+  const data = await requestJson<{ items: User[] }>('/api/admin/users');
+  return data.items;
+}
+
+export async function generateAdminUser(
+  username: string,
+  options?: { email?: string | null; is_admin?: boolean }
+): Promise<GeneratedUser> {
+  return requestJson<GeneratedUser>('/api/admin/users/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      username,
+      email: options?.email ?? null,
+      is_admin: options?.is_admin ?? false,
+    }),
+  });
+}
+
+export async function deleteAdminUser(userId: number): Promise<void> {
+  await requestJson<{ status: string }>(`/api/admin/users/${userId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function logoutUser(): Promise<void> {
   const config = await fetchAuthConfig().catch(() => null);
   if (config?.provider === 'keycloak' && config.logout_url) {

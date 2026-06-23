@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as StarletteResponse
 
+from .analytics import admin_analytics, record_events
 from .auth import (
     _session_days,
     authenticate,
@@ -189,6 +190,18 @@ class GenerateUserRequest(BaseModel):
     is_admin: bool = False
 
 
+class AnalyticsEvent(BaseModel):
+    type: str
+    route: str | None = None
+    article_id: int | None = None
+    feature: str | None = None
+    duration_ms: int | None = None
+
+
+class AnalyticsEventsRequest(BaseModel):
+    events: list[AnalyticsEvent]
+
+
 # ── Public auth routes (no session required) ──────────────────────────────────
 
 public_router = APIRouter()
@@ -313,6 +326,16 @@ def version_endpoint() -> dict[str, str]:
 # ── Authenticated API router ─────────────────────────────────────────────────
 
 api = APIRouter(dependencies=[Depends(require_auth)])
+
+
+@api.post("/api/events")
+def ingest_events(
+    payload: AnalyticsEventsRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    """Store a batch of client telemetry events for the current user."""
+    stored = record_events(current_user["id"], [event.model_dump() for event in payload.events])
+    return {"stored": stored}
 
 
 @api.get("/api/auth/me")
@@ -853,6 +876,11 @@ def summary(
 # ── Admin user-management routes ─────────────────────────────────────────────
 
 admin = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
+
+
+@admin.get("/analytics")
+def admin_get_analytics(days: Annotated[int, Query(ge=1, le=365)] = 30) -> dict[str, Any]:
+    return admin_analytics(days=days)
 
 
 @admin.get("/users")

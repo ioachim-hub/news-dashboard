@@ -1,4 +1,5 @@
 import type {
+  AdminAnalytics,
   Article,
   ArticleCountsResult,
   ArticleStatus,
@@ -238,6 +239,10 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
 
 export async function fetchMe(): Promise<User> {
   return requestJson<User>('/api/auth/me');
+}
+
+export async function fetchAdminAnalytics(days = 30): Promise<AdminAnalytics> {
+  return requestJson<AdminAnalytics>(`/api/admin/analytics?days=${days}`);
 }
 
 export async function loginUser(username: string, password: string): Promise<User> {

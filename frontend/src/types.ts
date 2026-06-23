@@ -212,3 +212,48 @@ export interface Briefing {
 
 export type BriefingLatestResponse = Briefing | { status: 'empty' };
 export type BriefingCreateResponse = Briefing | { status: 'no_candidates' };
+
+export interface AnalyticsSummary {
+  dau: number;
+  wau: number;
+  mau: number;
+  stickiness: number;
+  total_minutes: number;
+  total_sessions: number;
+  avg_session_minutes: number;
+  total_reads: number;
+  total_events: number;
+}
+
+export interface AnalyticsUserRow {
+  user_id: number;
+  username: string;
+  last_login_at: string | null;
+  minutes: number;
+  events: number;
+  reads: number;
+  skips: number;
+  starred: number;
+  briefings: number;
+}
+
+export interface AdminAnalytics {
+  range_days: number;
+  generated_at: string;
+  summary: AnalyticsSummary;
+  active_over_time: { day: string; active_users: number; minutes: number }[];
+  users: AnalyticsUserRow[];
+  route_popularity: { route: string; views: number; users: number }[];
+  feature_usage: { feature: string; count: number; users: number }[];
+  article_dwell: {
+    article_id: number;
+    title: string;
+    opens: number;
+    avg_dwell_seconds: number;
+  }[];
+  category_consumption: { category: string; reads: number }[];
+  source_consumption: { source_name: string; reads: number }[];
+  hourly_heatmap: { dow: number; hour: number; events: number }[];
+  skip_rate_trend: { day: string; skips: number; reads: number }[];
+  recommendation_funnel: { recommended: number; read: number; skipped: number };
+}

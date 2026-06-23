@@ -176,6 +176,9 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BRIEFING_API_KEY: ${{ secrets.OPENAI_BRIEFING_API_KEY }}
+          OPENAI_BRIEFING_BASE_URL: ${{ vars.OPENAI_BRIEFING_BASE_URL }}
+          OPENAI_BRIEFING_MODEL: ${{ vars.OPENAI_BRIEFING_MODEL }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
         run: |
           set -euo pipefail
@@ -203,6 +206,9 @@ jobs:
           if [ -n "$OPENAI_API_KEY" ]; then
             ai_secret_args+=(--from-literal=OPENAI_API_KEY="$OPENAI_API_KEY")
           fi
+          if [ -n "$OPENAI_BRIEFING_API_KEY" ]; then
+            ai_secret_args+=(--from-literal=OPENAI_BRIEFING_API_KEY="$OPENAI_BRIEFING_API_KEY")
+          fi
 
           ai_helm_args=()
           if [ ${#ai_secret_args[@]} -gt 0 ]; then
@@ -210,6 +216,12 @@ jobs:
               "${ai_secret_args[@]}" \
               --dry-run=client -o yaml | kubectl apply -f -
             ai_helm_args+=(--set app.ai.existingSecret=news-dashboard-ai)
+          fi
+          if [ -n "$OPENAI_BRIEFING_BASE_URL" ]; then
+            ai_helm_args+=(--set-string "app.ai.briefingBaseUrl=$OPENAI_BRIEFING_BASE_URL")
+          fi
+          if [ -n "$OPENAI_BRIEFING_MODEL" ]; then
+            ai_helm_args+=(--set-string "app.ai.briefingModel=$OPENAI_BRIEFING_MODEL")
           fi
 
           # Sync Helm chart changes from main. Avoid relying on the deploy

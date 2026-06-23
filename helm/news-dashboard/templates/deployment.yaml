@@ -63,6 +63,20 @@ spec:
                   name: {{ .Values.app.ai.existingSecret | quote }}
                   key: {{ .Values.app.ai.openaiApiKeyKey | quote }}
                   optional: true
+            - name: OPENAI_BRIEFING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.ai.existingSecret | quote }}
+                  key: {{ .Values.app.ai.briefingApiKeyKey | quote }}
+                  optional: true
+{{- end }}
+{{- if .Values.app.ai.briefingBaseUrl }}
+            - name: OPENAI_BRIEFING_BASE_URL
+              value: {{ .Values.app.ai.briefingBaseUrl | quote }}
+{{- end }}
+{{- if .Values.app.ai.briefingModel }}
+            - name: OPENAI_BRIEFING_MODEL
+              value: {{ .Values.app.ai.briefingModel | quote }}
 {{- end }}
 {{- if .Values.app.auth.enabled }}
             - name: KEYCLOAK_AUTH_ENABLED

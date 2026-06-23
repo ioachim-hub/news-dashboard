@@ -1,4 +1,4 @@
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate, type RouteObject } from 'react-router-dom';
 import { FocusedArticleProvider } from './contexts/focusedArticle';
 import { AuthProvider } from './contexts/auth';
 import { RequireAuth } from './components/RequireAuth';
@@ -22,7 +22,7 @@ import { ArticlePage } from './pages/ArticlePage';
 import { BriefingsHistoryPage } from './pages/BriefingsHistoryPage';
 import { BriefingDetailPage } from './pages/BriefingDetailPage';
 
-function NotFound() {
+export function NotFound() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
       <div className="max-w-md text-center">
@@ -44,7 +44,8 @@ function NotFound() {
   );
 }
 
-const router = createBrowserRouter([
+// eslint-disable-next-line react-refresh/only-export-components
+export const routes: RouteObject[] = [
   {
     path: '/login',
     element: <LoginPage />,
@@ -99,7 +100,9 @@ const router = createBrowserRouter([
       { path: '*', element: <NotFound /> },
     ],
   },
-]);
+];
+
+const router = createBrowserRouter(routes);
 
 export function AppRouter() {
   return (

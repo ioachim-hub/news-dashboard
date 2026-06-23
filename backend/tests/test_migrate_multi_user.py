@@ -45,6 +45,25 @@ def _insert_article(db_path: Path, *, url_suffix: str = "1", state: str = "done"
 # ── _row_count helper ─────────────────────────────────────────────────────────
 
 
+def test_sqlite_to_postgres_requires_postgres_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("POSTGRES_HOST", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    src = tmp_path / "old.sqlite"
+    src.touch()
+    result = runner.invoke(app, ["sqlite-to-postgres", str(src)])
+    assert result.exit_code != 0
+    assert "POSTGRES" in result.output or "DATABASE_URL" in result.output
+
+
+def test_sqlite_to_postgres_rejects_missing_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    result = runner.invoke(app, ["sqlite-to-postgres", "/no/such/file.sqlite"])
+    assert result.exit_code != 0
+    assert "not found" in result.output.lower()
+
+
 def test_row_count_postgres_style() -> None:
     # Simulate a psycopg dict_row with 'count' key (lowercase)
     assert _row_count({"count": 3}) == 3

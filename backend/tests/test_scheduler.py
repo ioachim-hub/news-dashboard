@@ -169,3 +169,448 @@ def test_start_scheduler_briefing_fn_is_run_briefing(monkeypatch: pytest.MonkeyP
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
     assert briefing_call.args[0] is expected_fn
+
+
+# ── _run_ingest ───────────────────────────────────────────────────────────────
+
+
+def test_run_ingest_prefetches_when_new_articles() -> None:
+    from news_dashboard import scheduler
+
+    with (
+        patch("news_dashboard.ingest.ingest_all", return_value={"a": 2, "b": -1}) as ingest,
+        patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
+        patch.object(scheduler, "_run_recommendation_recalc") as recalc,
+    ):
+        scheduler._run_ingest()
+
+    ingest.assert_called_once()
+    prefetch.assert_called_once()
+    recalc.assert_called_once()
+
+
+def test_run_ingest_skips_prefetch_when_no_new_articles() -> None:
+    from news_dashboard import scheduler
+
+    with (
+        patch("news_dashboard.ingest.ingest_all", return_value={"a": 0}),
+        patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
+        patch.object(scheduler, "_run_recommendation_recalc"),
+    ):
+        scheduler._run_ingest()
+
+    prefetch.assert_not_called()
+
+
+def test_run_ingest_suppresses_ingest_failure_but_still_recalcs() -> None:
+    from news_dashboard import scheduler
+
+    with (
+        patch("news_dashboard.ingest.ingest_all", side_effect=RuntimeError("boom")),
+        patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
+        patch.object(scheduler, "_run_recommendation_recalc") as recalc,
+    ):
+        scheduler._run_ingest()  # must not raise
+
+    prefetch.assert_not_called()
+    recalc.assert_called_once()
+
+
+# ── recommendation recalc jobs ────────────────────────────────────────────────
+
+
+def test_run_recommendation_recalc_logs_summary() -> None:
+    from news_dashboard import scheduler
+
+    summary = MagicMock()
+    summary.as_dict.return_value = {"recomputed": 3}
+    with patch(
+        "news_dashboard.recommendation_jobs.recalculate_stale_recommendations",
+        return_value=summary,
+    ):
+        scheduler._run_recommendation_recalc()
+    summary.as_dict.assert_called_once()
+
+
+def test_run_recommendation_recalc_suppresses_errors() -> None:
+    from news_dashboard import scheduler
+
+    with patch(
+        "news_dashboard.recommendation_jobs.recalculate_stale_recommendations",
+        side_effect=RuntimeError("nope"),
+    ):
+        scheduler._run_recommendation_recalc()  # must not raise
+
+
+def test_run_daily_recommendation_recalc_logs_summary() -> None:
+    from news_dashboard import scheduler
+
+    summary = MagicMock()
+    summary.as_dict.return_value = {"recomputed": 9}
+    with patch(
+        "news_dashboard.recommendation_jobs.recalculate_all_recommendations",
+        return_value=summary,
+    ):
+        scheduler._run_daily_recommendation_recalc()
+    summary.as_dict.assert_called_once()
+
+
+def test_run_daily_recommendation_recalc_suppresses_errors() -> None:
+    from news_dashboard import scheduler
+
+    with patch(
+        "news_dashboard.recommendation_jobs.recalculate_all_recommendations",
+        side_effect=RuntimeError("nope"),
+    ):
+        scheduler._run_daily_recommendation_recalc()  # must not raise
+
+
+# ── _run_digest ───────────────────────────────────────────────────────────────
+
+
+def test_run_digest_logs_sent(caplog: pytest.LogCaptureFixture) -> None:
+    from news_dashboard import scheduler
+
+    with (
+        caplog.at_level(logging.INFO, logger="news_dashboard.scheduler"),
+        patch("news_dashboard.digest.send_digest", return_value=True),
+    ):
+        scheduler._run_digest()
+    assert any("sent" in r.message.lower() for r in caplog.records)
+
+
+def test_run_digest_logs_skip(caplog: pytest.LogCaptureFixture) -> None:
+    from news_dashboard import scheduler
+
+    with (
+        caplog.at_level(logging.INFO, logger="news_dashboard.scheduler"),
+        patch("news_dashboard.digest.send_digest", return_value=False),
+    ):
+        scheduler._run_digest()
+    assert any("skipped" in r.message.lower() for r in caplog.records)
+
+
+def test_run_digest_suppresses_errors() -> None:
+    from news_dashboard import scheduler
+
+    with patch("news_dashboard.digest.send_digest", side_effect=RuntimeError("smtp down")):
+        scheduler._run_digest()  # must not raise
+
+
+# ── _parse_cron_hm ────────────────────────────────────────────────────────────
+
+
+def test_parse_cron_hm_extracts_fields() -> None:
+    from news_dashboard.scheduler import _parse_cron_hm
+
+    assert _parse_cron_hm("15 6 * * *", "0", "8") == ("15", "6")
+
+
+def test_parse_cron_hm_falls_back_on_short_input() -> None:
+    from news_dashboard.scheduler import _parse_cron_hm
+
+    assert _parse_cron_hm("nonsense", "0", "8") == ("0", "8")
+
+
+# ── start_scheduler — extra branches ──────────────────────────────────────────
+
+
+def test_start_scheduler_handles_missing_apscheduler(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from news_dashboard import scheduler
+
+    # Setting the submodule to None in sys.modules makes the lazy
+    # `from apscheduler.schedulers.background import ...` raise ImportError.
+    with (
+        caplog.at_level(logging.WARNING, logger="news_dashboard.scheduler"),
+        patch.dict("sys.modules", {"apscheduler.schedulers.background": None}),
+    ):
+        scheduler.start_scheduler()
+    assert any("APScheduler not installed" in r.message for r in caplog.records)
+
+
+def test_start_scheduler_pauses_when_db_flag_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = None
+
+    def get_setting(key: str) -> str | None:
+        return "true" if key == "scheduler_paused" else None
+
+    with (
+        patch(_BGSCHED_PATH, return_value=mock_sched),
+        patch(_INIT_DB_PATH),
+        patch(_GET_SETTING_PATH, side_effect=get_setting),
+    ):
+        from news_dashboard import scheduler
+
+        scheduler._state.scheduler = None
+        scheduler.start_scheduler()
+
+    mock_sched.pause_job.assert_called_once_with("ingest")
+
+
+def test_start_scheduler_uses_db_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = None
+
+    def get_setting(key: str) -> str | None:
+        return "12" if key == "ingest_interval_minutes" else None
+
+    with (
+        patch(_BGSCHED_PATH, return_value=mock_sched),
+        patch(_INIT_DB_PATH),
+        patch(_GET_SETTING_PATH, side_effect=get_setting),
+    ):
+        from news_dashboard import scheduler
+
+        scheduler._state.scheduler = None
+        scheduler.start_scheduler()
+
+    assert scheduler.get_interval_minutes() == 12
+    ingest_call = next(
+        c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "ingest"
+    )
+    assert ingest_call.kwargs["minutes"] == 12
+
+
+# ── lifecycle: stop / next-run / pause-state / interval ───────────────────────
+
+
+def test_stop_scheduler_shuts_down_and_clears() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    scheduler._state.scheduler = mock_sched
+    scheduler.stop_scheduler()
+    mock_sched.shutdown.assert_called_once_with(wait=False)
+    assert scheduler._state.scheduler is None
+
+
+def test_stop_scheduler_noop_when_not_running() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    scheduler.stop_scheduler()  # must not raise
+
+
+def test_get_next_ingest_at_none_when_not_running() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    assert scheduler.get_next_ingest_at() is None
+
+
+def test_get_next_ingest_at_returns_iso() -> None:
+    from datetime import datetime, timezone
+
+    from news_dashboard import scheduler
+
+    job = MagicMock()
+    job.next_run_time = datetime(2026, 6, 23, 8, 0, 0, tzinfo=timezone.utc)
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = job
+    scheduler._state.scheduler = mock_sched
+    try:
+        result = scheduler.get_next_ingest_at()
+    finally:
+        scheduler._state.scheduler = None
+    assert result == "2026-06-23T08:00:00+00:00"
+
+
+def test_is_paused_false_when_not_running() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    assert scheduler.is_paused() is False
+
+
+def test_is_paused_true_when_no_next_run() -> None:
+    from news_dashboard import scheduler
+
+    job = MagicMock()
+    job.next_run_time = None
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = job
+    scheduler._state.scheduler = mock_sched
+    try:
+        assert scheduler.is_paused() is True
+    finally:
+        scheduler._state.scheduler = None
+
+
+def test_is_paused_false_when_job_missing() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = None
+    scheduler._state.scheduler = mock_sched
+    try:
+        assert scheduler.is_paused() is False
+    finally:
+        scheduler._state.scheduler = None
+
+
+def test_set_interval_persists_and_reschedules() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        try:
+            scheduler.set_interval(45)
+        finally:
+            scheduler._state.scheduler = None
+    set_setting.assert_called_once_with("ingest_interval_minutes", "45")
+    mock_sched.reschedule_job.assert_called_once()
+    assert scheduler.get_interval_minutes() == 45
+
+
+def test_set_interval_persists_when_scheduler_stopped() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        scheduler.set_interval(60)
+    set_setting.assert_called_once_with("ingest_interval_minutes", "60")
+
+
+def test_pause_scheduler_persists_and_pauses() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        try:
+            scheduler.pause_scheduler()
+        finally:
+            scheduler._state.scheduler = None
+    set_setting.assert_called_once_with("scheduler_paused", "true")
+    mock_sched.pause_job.assert_called_once_with("ingest")
+
+
+def test_pause_scheduler_persists_when_stopped() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        scheduler.pause_scheduler()
+    set_setting.assert_called_once_with("scheduler_paused", "true")
+
+
+def test_resume_scheduler_persists_and_resumes() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        try:
+            scheduler.resume_scheduler()
+        finally:
+            scheduler._state.scheduler = None
+    set_setting.assert_called_once_with("scheduler_paused", "false")
+    mock_sched.resume_job.assert_called_once_with("ingest")
+
+
+def test_resume_scheduler_persists_when_stopped() -> None:
+    from news_dashboard import scheduler
+
+    scheduler._state.scheduler = None
+    with patch("news_dashboard.db.set_setting") as set_setting:
+        scheduler.resume_scheduler()
+    set_setting.assert_called_once_with("scheduler_paused", "false")
+
+
+# ── error-handler branches (advisory state must never propagate) ──────────────
+
+
+def test_start_scheduler_pause_failure_is_suppressed(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_sched = MagicMock()
+    mock_sched.get_job.return_value = None
+    mock_sched.pause_job.side_effect = RuntimeError("cannot pause")
+
+    def get_setting(key: str) -> str | None:
+        return "true" if key == "scheduler_paused" else None
+
+    with (
+        patch(_BGSCHED_PATH, return_value=mock_sched),
+        patch(_INIT_DB_PATH),
+        patch(_GET_SETTING_PATH, side_effect=get_setting),
+    ):
+        from news_dashboard import scheduler
+
+        scheduler._state.scheduler = None
+        scheduler.start_scheduler()  # must not raise
+
+
+def test_stop_scheduler_suppresses_shutdown_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.shutdown.side_effect = RuntimeError("already down")
+    scheduler._state.scheduler = mock_sched
+    scheduler.stop_scheduler()  # must not raise
+    assert scheduler._state.scheduler is None
+
+
+def test_get_next_ingest_at_suppresses_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.get_job.side_effect = RuntimeError("boom")
+    scheduler._state.scheduler = mock_sched
+    try:
+        assert scheduler.get_next_ingest_at() is None
+    finally:
+        scheduler._state.scheduler = None
+
+
+def test_is_paused_suppresses_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.get_job.side_effect = RuntimeError("boom")
+    scheduler._state.scheduler = mock_sched
+    try:
+        assert scheduler.is_paused() is False
+    finally:
+        scheduler._state.scheduler = None
+
+
+def test_set_interval_suppresses_reschedule_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.reschedule_job.side_effect = RuntimeError("boom")
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting"):
+        try:
+            scheduler.set_interval(15)  # must not raise
+        finally:
+            scheduler._state.scheduler = None
+
+
+def test_pause_scheduler_suppresses_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.pause_job.side_effect = RuntimeError("boom")
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting"):
+        try:
+            scheduler.pause_scheduler()  # must not raise
+        finally:
+            scheduler._state.scheduler = None
+
+
+def test_resume_scheduler_suppresses_error() -> None:
+    from news_dashboard import scheduler
+
+    mock_sched = MagicMock()
+    mock_sched.resume_job.side_effect = RuntimeError("boom")
+    scheduler._state.scheduler = mock_sched
+    with patch("news_dashboard.db.set_setting"):
+        try:
+            scheduler.resume_scheduler()  # must not raise
+        finally:
+            scheduler._state.scheduler = None

@@ -330,6 +330,26 @@ POSTGRES_MULTIUSER_SCHEMA = [
     CREATE INDEX IF NOT EXISTS idx_uar_user_stale
       ON user_article_recommendations(user_id) WHERE stale = TRUE
     """,
+    # Behavioral telemetry: every row is one client-emitted event. A single
+    # table covers time-on-app (heartbeat), page popularity (route), per-article
+    # dwell (article_open/article_close), and feature usage (feature). Sessions
+    # are derived at query time from heartbeat gaps rather than stored.
+    """
+    CREATE TABLE IF NOT EXISTS user_events (
+      id          BIGSERIAL PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      event_type  TEXT NOT NULL
+                    CHECK(event_type IN ('heartbeat','route','article_open',
+                                         'article_close','feature')),
+      route       TEXT,
+      article_id  BIGINT REFERENCES articles(id) ON DELETE SET NULL,
+      feature     TEXT,
+      duration_ms INTEGER,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_user_events_user_time ON user_events(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_user_events_type_time ON user_events(event_type, created_at)",
 ]
 
 

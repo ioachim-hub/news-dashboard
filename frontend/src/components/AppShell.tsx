@@ -7,6 +7,7 @@ import { CommandPalette } from './CommandPalette';
 import { ShortcutOverlay } from './ShortcutOverlay';
 import { cn } from '@/lib/utils';
 import { fetchSummary, logoutUser } from '@/api';
+import { startAnalytics, stopAnalytics, trackRoute } from '@/lib/analytics';
 import { useAuth } from '@/contexts/auth';
 import {
   getPageTitle,
@@ -124,6 +125,15 @@ export function AppShell() {
     setUser(null);
     navigate('/login', { replace: true });
   }
+
+  useEffect(() => {
+    startAnalytics();
+    return () => stopAnalytics();
+  }, []);
+
+  useEffect(() => {
+    trackRoute(pathname);
+  }, [pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

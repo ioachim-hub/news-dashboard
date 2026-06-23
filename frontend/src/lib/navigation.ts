@@ -1,4 +1,5 @@
 import {
+  Activity,
   Archive,
   BarChart3,
   Clock,
@@ -40,14 +41,15 @@ export const secondaryNavigationItems: NavigationItem[] = [
 ];
 
 // Shown in the secondary nav only for admin users.
-export const adminNavigationItem: NavigationItem = {
-  to: '/admin',
-  label: 'Users',
-  icon: Users,
-};
+export const adminNavigationItems: NavigationItem[] = [
+  { to: '/analytics', label: 'Analytics', icon: Activity },
+  { to: '/admin', label: 'Users', icon: Users },
+];
 
 export function secondaryNavigationItemsFor(isAdmin: boolean): NavigationItem[] {
-  return isAdmin ? [...secondaryNavigationItems, adminNavigationItem] : secondaryNavigationItems;
+  return isAdmin
+    ? [...secondaryNavigationItems, ...adminNavigationItems]
+    : secondaryNavigationItems;
 }
 
 export const mobileNavigationItems = primaryNavigationItems.slice(0, 5);
@@ -95,6 +97,7 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/stats')) return 'Stats';
   if (pathname.startsWith('/archive')) return 'Archive';
   if (pathname.startsWith('/settings')) return 'Settings';
+  if (pathname.startsWith('/analytics')) return 'Analytics';
   if (pathname.startsWith('/admin')) return 'Users';
   return 'Radar';
 }

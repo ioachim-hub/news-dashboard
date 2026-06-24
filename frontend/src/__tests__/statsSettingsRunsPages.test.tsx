@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ── Shared API mock ──────────────────────────────────────────────────────────
 // StatsPage / FeedsRunsPage import from '../api'; SettingsPage from '@/api'.
@@ -59,7 +60,8 @@ afterEach(() => {
 });
 
 function renderPage(ui: ReactElement) {
-  return render(ui);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 // ── StatsPage ────────────────────────────────────────────────────────────────

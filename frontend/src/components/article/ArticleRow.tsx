@@ -71,6 +71,17 @@ function ArticleRowComponent({ article, focused, showLaterUntil }: Props) {
           >
             {labelText}
           </span>
+          {article.recommendationScore != null && (
+            <>
+              <span className="text-subtle">·</span>
+              <span
+                className="text-muted-foreground tabular-nums"
+                data-testid="recommendation-score"
+              >
+                {Math.round(article.recommendationScore)}%
+              </span>
+            </>
+          )}
           {showLaterUntil && article.later_until && (
             <>
               <span className="text-subtle">·</span>

@@ -1,10 +1,20 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('@/api', () => ({ recalculateMyRecommendations: vi.fn() }));
 
 import { SettingsPage } from '../pages/SettingsPage';
+
+function renderSettings() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SettingsPage />
+    </QueryClientProvider>
+  );
+}
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -47,7 +57,7 @@ describe('SettingsPage on Electron', () => {
 
   it('shows the current version and an up-to-date state', async () => {
     const { handlers } = installElectron();
-    render(<SettingsPage />);
+    renderSettings();
     expect(screen.getByText('2.3.4')).toBeTruthy();
     handlers.notAvailable?.(undefined);
     await waitFor(() => expect(screen.getByText(/latest version/)).toBeTruthy());
@@ -55,7 +65,7 @@ describe('SettingsPage on Electron', () => {
 
   it('walks the available → download → ready flow', async () => {
     const { api, handlers } = installElectron();
-    render(<SettingsPage />);
+    renderSettings();
 
     handlers.available?.({ version: '9.9.9' });
     const download = await screen.findByText('Download update');
@@ -73,7 +83,7 @@ describe('SettingsPage on Electron', () => {
 
   it('shows an error and allows retry', async () => {
     const { api, handlers } = installElectron();
-    render(<SettingsPage />);
+    renderSettings();
     handlers.error?.('update boom');
     await waitFor(() => expect(screen.getByText('update boom')).toBeTruthy());
     fireEvent.click(screen.getByText('Try again'));
@@ -108,7 +118,7 @@ describe('SettingsPage on TWA', () => {
         });
       })
     );
-    render(<SettingsPage />);
+    renderSettings();
     fireEvent.click(screen.getByText('Check for updates'));
     const apk = await screen.findByText('Download APK');
     expect(apk.getAttribute('href')).toBe('https://gh/app.apk');

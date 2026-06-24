@@ -368,3 +368,68 @@ def test_api_state_transition_writes_uas(tmp_path: Path, monkeypatch: pytest.Mon
             assert art_d["state"] == "today"  # article table untouched
     finally:
         app.dependency_overrides.pop(require_auth, None)
+
+
+def test_api_articles_includes_recommendation_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/articles?state=today includes recommendation_score when ranked."""
+    db = tmp_path / "rec-score-api.db"
+    monkeypatch.setattr(db_mod, "DB_PATH", db)
+    sync_sources(db)
+
+    from fastapi.testclient import TestClient
+
+    from news_dashboard.auth import require_auth
+    from news_dashboard.main import app
+    from news_dashboard.recommendations import upsert_recommendation_score
+
+    uid = _make_user(db, "rec_score_user")
+    aid = _insert_article(db, url_suffix="rec-score1")
+
+    upsert_recommendation_score(uid, aid, 87.5, db_path=db)
+
+    fake_user = {"id": uid, "username": "rec_score_user", "email": None, "is_admin": False}
+    app.dependency_overrides[require_auth] = lambda: fake_user
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.get("/api/articles", params={"state": "today"})
+            assert resp.status_code == 200
+            items = resp.json()["items"]
+            article = next((a for a in items if a["id"] == aid), None)
+            assert article is not None
+            assert article["recommendation_score"] == pytest.approx(87.5)
+    finally:
+        app.dependency_overrides.pop(require_auth, None)
+
+
+def test_api_articles_recommendation_score_null_when_unranked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/articles?state=today returns null recommendation_score for unranked articles."""
+    db = tmp_path / "rec-score-null.db"
+    monkeypatch.setattr(db_mod, "DB_PATH", db)
+    sync_sources(db)
+
+    from fastapi.testclient import TestClient
+
+    from news_dashboard.auth import require_auth
+    from news_dashboard.main import app
+
+    uid = _make_user(db, "rec_null_user")
+    aid = _insert_article(db, url_suffix="rec-null1")
+
+    fake_user = {"id": uid, "username": "rec_null_user", "email": None, "is_admin": False}
+    app.dependency_overrides[require_auth] = lambda: fake_user
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.get("/api/articles", params={"state": "today"})
+            assert resp.status_code == 200
+            items = resp.json()["items"]
+            article = next((a for a in items if a["id"] == aid), None)
+            assert article is not None
+            assert article["recommendation_score"] is None
+    finally:
+        app.dependency_overrides.pop(require_auth, None)

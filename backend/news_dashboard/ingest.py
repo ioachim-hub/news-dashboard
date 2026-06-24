@@ -172,6 +172,13 @@ NOISE_FILTERS: dict[str, dict[str, Any]] = {
     "latent-space": {"max_items": 5, "keywords": None},
 }
 
+# Sources whose RSS feeds carry no description/content — fetch a snippet from
+# the article page for each new entry so summaries are non-empty from day one.
+_SNIPPET_FETCH_SOURCES: frozenset[str] = frozenset({"huggingface-blog"})
+
+# Cap the number of page fetches per ingest run to keep ingest fast.
+_MAX_SNIPPET_FETCHES_PER_RUN: int = 10
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -281,6 +288,23 @@ def _should_include(title: str, description: str, source_slug: str) -> bool:
         return True
     haystack = (title + " " + description).lower()
     return any(kw in haystack for kw in rule["keywords"])
+
+
+def _fetch_article_snippet(url: str) -> str:
+    """Return the first ~280 chars of readable text from the article page.
+
+    Falls back to an empty string on any fetch or parse failure so callers
+    can treat a missing snippet as a no-op rather than an error.
+    """
+    try:
+        from .body_fetch import extract_body  # lazy — optional dep
+
+        text, status = extract_body(url)
+        if status == "ok" and text:
+            return text[:280] + ("…" if len(text) > 280 else "")
+    except Exception:
+        logger.debug("snippet fetch failed for %r", url, exc_info=True)
+    return ""
 
 
 def _find_canonical(conn: Any, canonical_url: str, title: str) -> int | None:
@@ -419,6 +443,7 @@ def _ingest_source(source: SourceDefinition, db_path: Path | None = None) -> Sou
         entries = entries[:max_items]
         fetched = len(entries)
 
+        snippet_fetches_remaining = _MAX_SNIPPET_FETCHES_PER_RUN
         with connect(db_path) as conn:
             for entry in entries:
                 raw_url = entry.get("url", "")
@@ -427,6 +452,23 @@ def _ingest_source(source: SourceDefinition, db_path: Path | None = None) -> Sou
                 url = canonicalize_url(raw_url)
                 title = clean_html(entry.get("title") or "Untitled")
                 description = entry.get("description", "")
+
+                # For sources that publish no feed content, fetch a snippet from
+                # the article page — but only for URLs not already in the database
+                # (avoids redundant HTTP requests on repeat runs).
+                if (
+                    not description
+                    and source.slug in _SNIPPET_FETCH_SOURCES
+                    and snippet_fetches_remaining > 0
+                ):
+                    already_stored = conn.execute(
+                        "SELECT 1 FROM articles WHERE url = %s LIMIT 1", (url,)
+                    ).fetchone()
+                    if not already_stored:
+                        snippet = _fetch_article_snippet(url)
+                        if snippet:
+                            description = snippet
+                            snippet_fetches_remaining -= 1
 
                 if not _should_include(title, description, source.slug):
                     continue

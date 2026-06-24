@@ -98,6 +98,25 @@ describe('ArticleRow — compact recommendation labels', () => {
   });
 });
 
+describe('ArticleRow — numeric relevance score badge', () => {
+  it('shows the rounded numeric score when an article is ranked', () => {
+    renderRow(makeArticle({ recommendationScore: 82.7 }));
+    const badge = screen.getByTestId('recommendation-score');
+    expect(badge.textContent).toBe('83%');
+  });
+
+  it('rounds the score to the nearest integer', () => {
+    renderRow(makeArticle({ recommendationScore: 44.4 }));
+    const badge = screen.getByTestId('recommendation-score');
+    expect(badge.textContent).toBe('44%');
+  });
+
+  it('does not render the score badge when the article is unranked', () => {
+    renderRow(makeArticle({ recommendationScore: undefined }));
+    expect(screen.queryByTestId('recommendation-score')).toBeNull();
+  });
+});
+
 describe('ArticleRow — existing workflows keep working', () => {
   it('keeps the article link for keyboard/tap opening', () => {
     renderRow(makeArticle({ recommendationScore: 82 }));

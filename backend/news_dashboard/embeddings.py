@@ -69,23 +69,27 @@ def embedding_text(
 
 def _embed(text: str) -> list[float]:
     """Embed *text* with text-embedding-3-small via the OpenAI SDK."""
-    from news_dashboard.ai_client import get_openai_client
+    from news_dashboard.ai_client import get_openai_client, trace_params
 
     api_key = _require_env("OPENAI_API_KEY", "generate article embeddings")
     client = get_openai_client(api_key=api_key)
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=text,
+        **trace_params("article-embedding", tags=["embedding"]),
     )
     return list(response.data[0].embedding)
 
 
 def _answer(system_prompt: str, user_prompt: str) -> str:
     """Generate an answer with OpenAI using the same key as embeddings."""
-    from news_dashboard.ai_client import get_openai_client
+    from news_dashboard.ai_client import chat_create, get_openai_client
 
     client = get_openai_client(api_key=_require_env("OPENAI_API_KEY", "use Ask AI"))
-    response = client.chat.completions.create(
+    response = chat_create(
+        client,
+        name="ask-ai",
+        tags=["ask-ai"],
         model=os.getenv("OPENAI_ANSWER_MODEL", DEFAULT_ANSWER_MODEL),
         messages=[
             {"role": "system", "content": system_prompt},

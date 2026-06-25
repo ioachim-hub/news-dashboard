@@ -1,10 +1,23 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
-from news_dashboard.ai_client import flush, get_openai_client, langfuse_enabled
+from news_dashboard.ai_client import (
+    _normalise_host_env,
+    flush,
+    get_openai_client,
+    langfuse_enabled,
+    trace_params,
+)
 
-_LANGFUSE_VARS = ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST")
+_LANGFUSE_VARS = (
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_HOST",
+    "LANGFUSE_BASE_URL",
+)
 
 
 @pytest.fixture
@@ -56,3 +69,34 @@ def test_returns_langfuse_client_when_enabled(monkeypatch: pytest.MonkeyPatch) -
 def test_flush_is_noop_without_credentials() -> None:
     # Must not raise when tracing is disabled.
     flush()
+
+
+@pytest.mark.usefixtures("_no_langfuse")
+def test_trace_params_empty_when_disabled() -> None:
+    # The plain OpenAI client rejects unknown kwargs, so nothing must leak.
+    assert trace_params("ask-ai", tags=["ask-ai"]) == {}
+
+
+def test_trace_params_sets_name_and_tags_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
+
+    assert trace_params("briefing-generation", tags=["briefing"]) == {
+        "name": "briefing-generation",
+        "metadata": {"langfuse_tags": ["briefing"]},
+    }
+    assert trace_params("ask-ai") == {"name": "ask-ai"}
+
+
+@pytest.mark.usefixtures("_no_langfuse")
+def test_base_url_alias_populates_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://fuse.example.com")
+    _normalise_host_env()
+    assert os.environ["LANGFUSE_HOST"] == "https://fuse.example.com"
+
+
+def test_existing_host_not_overwritten_by_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGFUSE_HOST", "https://primary.example.com")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://alias.example.com")
+    _normalise_host_env()
+    assert os.environ["LANGFUSE_HOST"] == "https://primary.example.com"

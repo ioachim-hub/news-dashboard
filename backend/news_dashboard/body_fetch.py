@@ -53,10 +53,13 @@ def _ai_extract_body(url: str) -> tuple[str, str]:
         return "", "error"
 
     try:
-        from news_dashboard.ai_client import get_openai_client
+        from news_dashboard.ai_client import chat_create, get_openai_client
 
         client = get_openai_client(api_key=api_key)
-        result = client.chat.completions.create(
+        result = chat_create(
+            client,
+            name="ai-body-fetch",
+            tags=["body-fetch"],
             model=_AI_MODEL,
             messages=[{"role": "user", "content": f"{_AI_PROMPT}\n\n{html}"}],
             max_tokens=2048,

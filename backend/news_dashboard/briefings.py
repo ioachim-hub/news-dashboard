@@ -203,11 +203,14 @@ def _call_openai(candidates: list[dict[str, Any]], model: str) -> dict[str, Any]
 
     from openai import OpenAIError  # lazy import — optional dep at import time
 
-    from news_dashboard.ai_client import get_openai_client
+    from news_dashboard.ai_client import chat_create, get_openai_client
 
     client = get_openai_client(api_key=api_key, base_url=base_url)
     try:
-        response = client.chat.completions.create(
+        response = chat_create(
+            client,
+            name="briefing-generation",
+            tags=["briefing"],
             model=model,
             messages=[
                 {"role": "system", "content": system},

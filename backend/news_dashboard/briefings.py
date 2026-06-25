@@ -176,7 +176,6 @@ def _briefing_ai_config() -> tuple[str, str | None]:
 
 def _call_openai(candidates: list[dict[str, Any]], model: str) -> dict[str, Any]:
     """Call an OpenAI-compatible API to generate structured briefing JSON."""
-    from openai import OpenAI  # lazy import — optional dep at import time
 
     api_key, base_url = _briefing_ai_config()
 
@@ -204,7 +203,9 @@ def _call_openai(candidates: list[dict[str, Any]], model: str) -> dict[str, Any]
 
     from openai import OpenAIError  # lazy import — optional dep at import time
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    from news_dashboard.ai_client import get_openai_client
+
+    client = get_openai_client(api_key=api_key, base_url=base_url)
     try:
         response = client.chat.completions.create(
             model=model,

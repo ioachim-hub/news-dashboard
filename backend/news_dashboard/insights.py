@@ -69,9 +69,9 @@ def generate_insights(article: dict[str, Any]) -> list[str]:
     if not text.strip():
         return []
 
-    from openai import OpenAI  # lazy import — optional dep at import time
+    from news_dashboard.ai_client import get_openai_client
 
-    client = OpenAI(api_key=api_key)
+    client = get_openai_client(api_key=api_key)
     logger.info("Generating insights for article %s", article.get("id"))
     result = client.chat.completions.create(
         model=_MODEL,

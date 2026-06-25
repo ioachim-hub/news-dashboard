@@ -71,9 +71,9 @@ def generate_audio(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    from openai import OpenAI  # lazy import — optional dep at import time
+    from news_dashboard.ai_client import get_openai_client
 
-    client = OpenAI(api_key=api_key)
+    client = get_openai_client(api_key=api_key)
     logger.info("Generating TTS audio for article %d (%d chars)", article_id, len(text))
     with client.audio.speech.with_streaming_response.create(
         model=_MODEL, voice=_VOICE, input=text

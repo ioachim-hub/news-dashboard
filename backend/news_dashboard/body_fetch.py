@@ -53,9 +53,9 @@ def _ai_extract_body(url: str) -> tuple[str, str]:
         return "", "error"
 
     try:
-        from openai import OpenAI  # lazy import — optional dep at import time
+        from news_dashboard.ai_client import get_openai_client
 
-        client = OpenAI(api_key=api_key)
+        client = get_openai_client(api_key=api_key)
         result = client.chat.completions.create(
             model=_AI_MODEL,
             messages=[{"role": "user", "content": f"{_AI_PROMPT}\n\n{html}"}],

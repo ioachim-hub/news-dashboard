@@ -69,9 +69,10 @@ def embedding_text(
 
 def _embed(text: str) -> list[float]:
     """Embed *text* with text-embedding-3-small via the OpenAI SDK."""
-    from openai import OpenAI  # lazy import — optional dep at import time
+    from news_dashboard.ai_client import get_openai_client
 
-    client = OpenAI(api_key=_require_env("OPENAI_API_KEY", "generate article embeddings"))
+    api_key = _require_env("OPENAI_API_KEY", "generate article embeddings")
+    client = get_openai_client(api_key=api_key)
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=text,
@@ -81,9 +82,9 @@ def _embed(text: str) -> list[float]:
 
 def _answer(system_prompt: str, user_prompt: str) -> str:
     """Generate an answer with OpenAI using the same key as embeddings."""
-    from openai import OpenAI  # lazy import — optional dep at import time
+    from news_dashboard.ai_client import get_openai_client
 
-    client = OpenAI(api_key=_require_env("OPENAI_API_KEY", "use Ask AI"))
+    client = get_openai_client(api_key=_require_env("OPENAI_API_KEY", "use Ask AI"))
     response = client.chat.completions.create(
         model=os.getenv("OPENAI_ANSWER_MODEL", DEFAULT_ANSWER_MODEL),
         messages=[

@@ -731,7 +731,9 @@ def test_call_openai_uses_default_base_url_when_unset(monkeypatch: pytest.Monkey
     cls = _patch_openai(monkeypatch, "{}")
     _call_openai([{"id": 1, "title": "A"}], model="gpt-x")
     assert cls.last_kwargs["api_key"] == "sk-test"
-    assert cls.last_kwargs["base_url"] is None
+    # The client factory omits base_url entirely when none is configured
+    # (equivalent to the OpenAI SDK default).
+    assert cls.last_kwargs.get("base_url") is None
 
 
 def test_call_openai_uses_briefing_endpoint_override(monkeypatch: pytest.MonkeyPatch) -> None:

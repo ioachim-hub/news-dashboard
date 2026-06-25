@@ -7,8 +7,10 @@ returns a plain ``openai.OpenAI`` client with zero tracing and no warnings — s
 behaviour is unchanged wherever Langfuse is not wired up.
 
 Tracing is enabled when both ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY``
-are present in the environment (``LANGFUSE_HOST`` selects the self-hosted
-instance). The Langfuse drop-in wrapper reads those variables itself.
+are present in the environment. ``LANGFUSE_HOST`` selects the self-hosted
+instance; ``LANGFUSE_BASE_URL`` is accepted as an alias (the Langfuse SDK only
+reads ``LANGFUSE_HOST``, so we normalise it). The drop-in wrapper reads those
+variables itself.
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ from __future__ import annotations
 import importlib
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from openai import OpenAI
+    from openai.types.chat import ChatCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,53 @@ logger = logging.getLogger(__name__)
 def langfuse_enabled() -> bool:
     """Return True when Langfuse tracing credentials are configured."""
     return bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+
+
+def _normalise_host_env() -> None:
+    """Map ``LANGFUSE_BASE_URL`` to ``LANGFUSE_HOST`` when only the former is set.
+
+    The Langfuse SDK reads ``LANGFUSE_HOST`` exclusively; without this, an env
+    that only defines ``LANGFUSE_BASE_URL`` would silently target the public
+    cloud instead of the configured (self-hosted) endpoint.
+    """
+    if not os.getenv("LANGFUSE_HOST"):
+        base_url = os.getenv("LANGFUSE_BASE_URL")
+        if base_url:
+            os.environ["LANGFUSE_HOST"] = base_url
+
+
+def trace_params(name: str, *, tags: list[str] | None = None) -> dict[str, Any]:
+    """Return per-call Langfuse trace kwargs for an OpenAI ``create`` call.
+
+    Returns ``{}`` when tracing is disabled, so the plain OpenAI client (which
+    rejects unknown kwargs) is never handed Langfuse-only arguments. When
+    enabled, sets a descriptive observation ``name`` (and optional ``tags``) so
+    traces are filterable by feature in the Langfuse UI.
+    """
+    if not langfuse_enabled():
+        return {}
+    params: dict[str, Any] = {"name": name}
+    if tags:
+        params["metadata"] = {"langfuse_tags": tags}
+    return params
+
+
+def chat_create(
+    client: OpenAI,
+    *,
+    name: str,
+    tags: list[str] | None = None,
+    **kwargs: Any,
+) -> ChatCompletion:
+    """Create a (non-streaming) chat completion, traced when Langfuse is on.
+
+    Centralises the Langfuse trace name/tags so call sites stay clean and the
+    overloaded ``create`` keeps resolving to a non-streaming ``ChatCompletion``
+    (unpacking ``**kwargs`` otherwise widens the return type to include
+    ``Stream``).
+    """
+    completion = client.chat.completions.create(**kwargs, **trace_params(name, tags=tags))
+    return cast("ChatCompletion", completion)
 
 
 def get_openai_client(*, api_key: str, base_url: str | None = None) -> OpenAI:
@@ -40,6 +90,7 @@ def get_openai_client(*, api_key: str, base_url: str | None = None) -> OpenAI:
         kwargs["base_url"] = base_url
 
     if langfuse_enabled():
+        _normalise_host_env()
         # Langfuse's drop-in client subclasses openai.OpenAI and traces every
         # request. Resolve it dynamically so this module type-checks whether or
         # not langfuse is installed (it re-exports OpenAI without an __all__).
@@ -62,6 +113,7 @@ def flush() -> None:
     if not langfuse_enabled():
         return
     try:
+        _normalise_host_env()
         langfuse = importlib.import_module("langfuse")
         langfuse.get_client().flush()
     except Exception as exc:

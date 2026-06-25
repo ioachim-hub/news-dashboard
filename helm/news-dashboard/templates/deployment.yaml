@@ -78,6 +78,24 @@ spec:
             - name: OPENAI_BRIEFING_MODEL
               value: {{ .Values.app.ai.briefingModel | quote }}
 {{- end }}
+{{- if .Values.app.ai.langfuse.host }}
+            - name: LANGFUSE_HOST
+              value: {{ .Values.app.ai.langfuse.host | quote }}
+{{- if .Values.app.ai.existingSecret }}
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.ai.existingSecret | quote }}
+                  key: {{ .Values.app.ai.langfuse.publicKeyKey | quote }}
+                  optional: true
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.ai.existingSecret | quote }}
+                  key: {{ .Values.app.ai.langfuse.secretKeyKey | quote }}
+                  optional: true
+{{- end }}
+{{- end }}
 {{- if .Values.app.auth.enabled }}
             - name: KEYCLOAK_AUTH_ENABLED
               value: "1"

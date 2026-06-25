@@ -19,6 +19,10 @@ def ingest() -> None:
     for source, count in results.items():
         typer.echo(f"{source}: {count}")
     typer.echo(f"inserted: {sum(value for value in results.values() if value > 0)}")
+    # Short-lived process: flush any buffered Langfuse traces before exit.
+    from .ai_client import flush
+
+    flush()
 
 
 @app.command()

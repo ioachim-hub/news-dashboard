@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.19.1
+- Fixed an issue with Helm values nesting under `app.ai` for deployments.
+
 ## 1.19.0
 - Attach `user_id` to Langfuse traces for better traceability.
 - Enrich Langfuse traces with descriptive names and support custom `LANGFUSE_BASE_URL` configuration.

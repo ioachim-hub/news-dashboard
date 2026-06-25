@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.19.0
+- Attach `user_id` to Langfuse traces for better traceability.
+- Enrich Langfuse traces with descriptive names and support custom `LANGFUSE_BASE_URL` configuration.
+- Trace all OpenAI API calls through Langfuse for enhanced monitoring.
+
 ## 1.18.0
 - Show a "What's new" popup highlighting changes after the app updates to a new version
 

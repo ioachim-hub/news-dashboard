@@ -29,7 +29,7 @@ def test_helm_template_default() -> None:
     assert "NEWS_DASHBOARD_DB" not in output
     # Check that it renders standard postgres config
     assert "name: POSTGRES_HOST" in output
-    assert "value: news-dashboard-postgres" in output
+    assert 'value: "news-dashboard-news-dashboard-postgres"' in output
 
 
 @pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")
@@ -91,7 +91,7 @@ def test_helm_template_external_database_url() -> None:
     output = res.stdout
     assert "NEWS_DASHBOARD_DB" not in output
     assert "name: DATABASE_URL" in output
-    assert "name: my-db-secret" in output
+    assert 'name: "my-db-secret"' in output
 
 
 @pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")

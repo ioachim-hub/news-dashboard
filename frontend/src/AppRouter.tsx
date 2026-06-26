@@ -1,4 +1,6 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, type RouteObject } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { FocusedArticleProvider } from './contexts/focusedArticle';
 import { AuthProvider } from './contexts/auth';
 import { RequireAuth } from './components/RequireAuth';
@@ -9,21 +11,56 @@ import { InboxPage } from './pages/InboxPage';
 import { SharedPage } from './pages/SharedPage';
 import { LaterPage } from './pages/LaterPage';
 import { StarredPage } from './pages/StarredPage';
-import { SearchPage } from './pages/SearchPage';
-import { AskPage } from './pages/AskPage';
 import { FeedsPage } from './pages/FeedsPage';
 import { SourcesPage } from './pages/SourcesPage';
-import { SchedulerPage } from './pages/SchedulerPage';
-import { FeedsRunsPage } from './pages/FeedsRunsPage';
-import { FeedsLogsPage } from './pages/FeedsLogsPage';
-import { StatsPage } from './pages/StatsPage';
 import { ArchivePage } from './pages/ArchivePage';
-import { SettingsPage } from './pages/SettingsPage';
-import { ArticlePage } from './pages/ArticlePage';
-import { AdminPage } from './pages/AdminPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { BriefingsHistoryPage } from './pages/BriefingsHistoryPage';
-import { BriefingDetailPage } from './pages/BriefingDetailPage';
+
+const SearchPage = lazy(() =>
+  import('./pages/SearchPage').then((m) => ({ default: m.SearchPage }))
+);
+const AskPage = lazy(() => import('./pages/AskPage').then((m) => ({ default: m.AskPage })));
+const SchedulerPage = lazy(() =>
+  import('./pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage }))
+);
+const FeedsRunsPage = lazy(() =>
+  import('./pages/FeedsRunsPage').then((m) => ({ default: m.FeedsRunsPage }))
+);
+const FeedsLogsPage = lazy(() =>
+  import('./pages/FeedsLogsPage').then((m) => ({ default: m.FeedsLogsPage }))
+);
+const StatsPage = lazy(() => import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })));
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+const ArticlePage = lazy(() =>
+  import('./pages/ArticlePage').then((m) => ({ default: m.ArticlePage }))
+);
+const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })));
+const AnalyticsPage = lazy(() =>
+  import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage }))
+);
+const BriefingsHistoryPage = lazy(() =>
+  import('./pages/BriefingsHistoryPage').then((m) => ({ default: m.BriefingsHistoryPage }))
+);
+const BriefingDetailPage = lazy(() =>
+  import('./pages/BriefingDetailPage').then((m) => ({ default: m.BriefingDetailPage }))
+);
+
+function PageLoader() {
+  return (
+    <div className="flex min-h-[50vh] flex-1 items-center justify-center p-8">
+      <Loader2 className="text-muted-foreground size-6 animate-spin" />
+    </div>
+  );
+}
+
+function withSuspense(Component: React.ComponentType) {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Component />
+    </Suspense>
+  );
+}
 
 export function NotFound() {
   return (
@@ -55,11 +92,7 @@ export const routes: RouteObject[] = [
   },
   {
     path: '/a/:id',
-    element: (
-      <RequireAuth>
-        <ArticlePage />
-      </RequireAuth>
-    ),
+    element: <RequireAuth>{withSuspense(ArticlePage)}</RequireAuth>,
   },
   {
     path: '/',
@@ -74,25 +107,25 @@ export const routes: RouteObject[] = [
       { path: 'later', element: <LaterPage /> },
       { path: 'starred', element: <StarredPage /> },
       { path: 'shared', element: <SharedPage /> },
-      { path: 'search', element: <SearchPage /> },
-      { path: 'ask', element: <AskPage /> },
+      { path: 'search', element: withSuspense(SearchPage) },
+      { path: 'ask', element: withSuspense(AskPage) },
       {
         path: 'feeds',
         element: <FeedsPage />,
         children: [
           { index: true, element: <SourcesPage /> },
-          { path: 'schedule', element: <SchedulerPage /> },
-          { path: 'runs', element: <FeedsRunsPage /> },
-          { path: 'logs', element: <FeedsLogsPage /> },
+          { path: 'schedule', element: withSuspense(SchedulerPage) },
+          { path: 'runs', element: withSuspense(FeedsRunsPage) },
+          { path: 'logs', element: withSuspense(FeedsLogsPage) },
         ],
       },
-      { path: 'briefs', element: <BriefingsHistoryPage /> },
-      { path: 'briefs/:id', element: <BriefingDetailPage /> },
-      { path: 'stats', element: <StatsPage /> },
+      { path: 'briefs', element: withSuspense(BriefingsHistoryPage) },
+      { path: 'briefs/:id', element: withSuspense(BriefingDetailPage) },
+      { path: 'stats', element: withSuspense(StatsPage) },
       { path: 'archive', element: <ArchivePage /> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: 'admin', element: <AdminPage /> },
-      { path: 'analytics', element: <AnalyticsPage /> },
+      { path: 'settings', element: withSuspense(SettingsPage) },
+      { path: 'admin', element: withSuspense(AdminPage) },
+      { path: 'analytics', element: withSuspense(AnalyticsPage) },
 
       /* Legacy route redirects — remove when each migration slice lands */
       { path: 'inbox', element: <Navigate to="/today" replace /> },

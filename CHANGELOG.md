@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.22.0
+- Quickly access your shared articles from the mobile bottom bar — "Shared" now replaces "Later" for easier navigation.
+
 ## 1.21.0
 - You can now share articles with other users directly within the platform!
 

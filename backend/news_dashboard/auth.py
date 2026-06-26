@@ -120,8 +120,21 @@ def _session_days() -> int:
 # --------------------------------------------------------------------------- #
 
 
+def _bcrypt_rounds() -> int:
+    env_val = os.getenv("BCRYPT_ROUNDS")
+    if env_val is not None:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+    # Detect test context: TEST_SESSION_SECRET is set by pytest fixtures.
+    if os.getenv("TEST_SESSION_SECRET"):
+        return 4
+    return 12
+
+
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(_bcrypt_rounds())).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:

@@ -92,7 +92,7 @@ After ≥ 100 saved/read articles exist:
 ### Data model (ready now)
 
 - Articles already store `summary`, `tags`, `reason` — sufficient for keyword search.
-- SQLite FTS5 virtual table (`articles_fts`) is already created and indexes title/summary/tags/source_name.
+- PostgreSQL full-text search (`search_vector` tsvector generated column and `idx_articles_search` GIN index) is created and indexes title/summary/reason/tags/source_name/body.
 - Backend `/api/search?q=...` endpoint is live.
 
 ### Full-text extraction (v1.1)
@@ -104,7 +104,7 @@ After ≥ 100 saved/read articles exist:
 ### Embeddings / vector search (v1.2)
 
 - Embed title + summary via OpenAI.
-- Store in a separate `article_embeddings` table as a BLOB or via SQLite-VSS.
+- Store in the `articles` table as a `BYTEA` column.
 - Enables semantic search and similarity grouping.
 
 ### Ask Clau endpoint (v1.3)
@@ -133,7 +133,7 @@ Privacy/security:
 ### Privacy/security boundaries
 
 - No article content leaves the server unless `AI_ENABLED=1` is set.
-- Search index is local SQLite FTS5.
+- Search index uses PostgreSQL full-text search.
 - Caddy basic_auth is the only authentication layer at v1.
 
 ## Deployment

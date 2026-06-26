@@ -89,6 +89,13 @@ defer to the language skills for exact commands and patterns:
 - TypeScript / React / frontend changes → follow `typescript-dev`
   (vitest, eslint `--max-warnings 0`, prettier, `tsc`).
 
+Codex worktrees may not include the ignored `.env` file. Before running
+backend tests or pushing, check whether the current worktree has `.env`; if it
+does not, copy it from the main checkout (usually `/Users/ioachimlihor/news-dashboard/.env`)
+into the worktree. Do not print secret values. It is enough to verify that
+`DATABASE_URL` and `TEST_DATABASE_URL` are present so the pre-push backend
+pytest hook can connect to PostgreSQL.
+
 Push only once the relevant tests and type/lint gates pass locally — CI runs the
 same gates, so green-locally is the cheapest way to a green PR.
 

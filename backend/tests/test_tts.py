@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from news_dashboard.tts import TTSNotConfiguredError, _build_text, generate_audio
+from news_dashboard.tts import TTSNotConfiguredError, _build_text, _tts_ai_config, generate_audio
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -79,6 +79,42 @@ def test_generate_audio_raises_when_no_api_key(tmp_path: Path) -> None:
             generate_audio(42, _ARTICLE, data_dir=tmp_path)
 
 
+def test_tts_ai_config_uses_tts_specific_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway:9130/v1")
+    monkeypatch.setenv("OPENAI_TTS_API_KEY", "sk-tts")
+    monkeypatch.setenv("OPENAI_TTS_BASE_URL", "http://tts-gateway:9130/v1")
+
+    api_key, base_url = _tts_ai_config()
+
+    assert api_key == "sk-tts"
+    assert base_url == "http://tts-gateway:9130/v1"
+
+
+def test_tts_ai_config_uses_shared_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway:9130/v1")
+    monkeypatch.delenv("OPENAI_TTS_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_TTS_BASE_URL", raising=False)
+
+    api_key, base_url = _tts_ai_config()
+
+    assert api_key == "sk-shared"
+    assert base_url == "http://shared-gateway:9130/v1"
+
+
+def test_tts_ai_config_falls_back_to_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_TTS_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_TTS_BASE_URL", raising=False)
+
+    api_key, base_url = _tts_ai_config()
+
+    assert api_key == "sk-shared"
+    assert base_url is None
+
+
 # ── generate_audio — cache miss (calls API) ───────────────────────────────────
 
 
@@ -97,7 +133,7 @@ def test_generate_audio_calls_openai_and_writes_file(tmp_path: Path) -> None:
 
     with (
         patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
-        patch("openai.OpenAI", return_value=mock_client),
+        patch("openai.OpenAI", return_value=mock_client) as mock_factory,
     ):
         path = generate_audio(42, _ARTICLE, data_dir=tmp_path)
 
@@ -108,6 +144,38 @@ def test_generate_audio_calls_openai_and_writes_file(tmp_path: Path) -> None:
     assert call_kwargs.kwargs["model"] == "tts-1"
     assert call_kwargs.kwargs["voice"] == "alloy"
     assert "Test Article Title" in call_kwargs.kwargs["input"]
+    mock_factory.assert_called_once_with(api_key="sk-test")
+
+
+def test_generate_audio_uses_configured_gateway_base_url(tmp_path: Path) -> None:
+    mock_response = MagicMock()
+
+    def fake_stream(path: Path) -> None:
+        path.write_bytes(b"fake-mp3-data")
+
+    mock_response.stream_to_file.side_effect = fake_stream
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=False)
+
+    mock_client = MagicMock()
+    mock_client.audio.speech.with_streaming_response.create.return_value = mock_response
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "OPENAI_API_KEY": "sk-test",
+                "OPENAI_BASE_URL": "http://shared-gateway:9130/v1",
+            },
+        ),
+        patch("openai.OpenAI", return_value=mock_client) as mock_factory,
+    ):
+        path = generate_audio(42, _ARTICLE, data_dir=tmp_path)
+
+    assert path.exists()
+    mock_factory.assert_called_once_with(
+        api_key="sk-test", base_url="http://shared-gateway:9130/v1"
+    )
 
 
 # ── generate_audio — cache hit (skips API) ────────────────────────────────────

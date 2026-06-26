@@ -24,6 +24,22 @@ class TTSNotConfiguredError(Exception):
     """Raised when OPENAI_API_KEY is not set."""
 
 
+def _tts_ai_config() -> tuple[str, str | None]:
+    """Resolve the (api_key, base_url) for text-to-speech generation.
+
+    TTS can target an OpenAI-compatible audio/speech endpoint via
+    ``OPENAI_TTS_BASE_URL`` / ``OPENAI_TTS_API_KEY``, falling back to the shared
+    ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``. When no base URL is configured the
+    official OpenAI endpoint is used.
+    """
+    api_key = os.getenv("OPENAI_TTS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        msg = "OPENAI_API_KEY is not configured"
+        raise TTSNotConfiguredError(msg)
+    base_url = os.getenv("OPENAI_TTS_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
+    return api_key, base_url
+
+
 def _data_dir() -> Path:
     return Path(os.getenv("DATA_DIR", str(_DEFAULT_DATA_DIR)))
 
@@ -53,10 +69,7 @@ def generate_audio(
     Raises TTSNotConfiguredError when OPENAI_API_KEY is absent.
     Raises RuntimeError on API failure.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        msg = "OPENAI_API_KEY is not configured"
-        raise TTSNotConfiguredError(msg)
+    api_key, base_url = _tts_ai_config()
 
     path = _audio_path(article_id, data_dir)
 
@@ -73,7 +86,7 @@ def generate_audio(
 
     from news_dashboard.ai_client import get_openai_client
 
-    client = get_openai_client(api_key=api_key)
+    client = get_openai_client(api_key=api_key, base_url=base_url)
     logger.info("Generating TTS audio for article %d (%d chars)", article_id, len(text))
     # audio/speech does not accept Langfuse trace kwargs, so TTS calls are
     # intentionally untraced. The wrapped client still routes through the same

@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.21.1
+- Your desktop navigation bar now stays in place while you scroll, making it easier to navigate the app.
+
 ## 1.21.0
 - You can now share articles with other users directly within the platform!
 

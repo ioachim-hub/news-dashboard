@@ -48,21 +48,29 @@ spec:
                       name: {{ include "news-dashboard.fullname" . }}-postgres
                       key: POSTGRES_PASSWORD
 {{- else }}
-                - name: NEWS_DASHBOARD_DB
-                  value: {{ .Values.app.databasePath | quote }}
-{{- end }}
-              volumeMounts:
-                - name: data
-                  mountPath: /data
-          volumes:
-            - name: data
-{{- if .Values.persistence.hostPath }}
-              hostPath:
-                path: {{ .Values.persistence.hostPath | quote }}
-                type: DirectoryOrCreate
-{{- else if .Values.persistence.enabled }}
-              persistentVolumeClaim:
-                claimName: {{ include "news-dashboard.fullname" . }}
-{{- else }}
-              emptyDir: {}
+  {{- if and .Values.app.postgresExternal .Values.app.postgresExternal.host }}
+                - name: POSTGRES_HOST
+                  value: {{ .Values.app.postgresExternal.host | quote }}
+                - name: POSTGRES_PORT
+                  value: {{ .Values.app.postgresExternal.port | default 5432 | quote }}
+                - name: POSTGRES_DB
+                  value: {{ .Values.app.postgresExternal.database | quote }}
+                - name: POSTGRES_USER
+                  value: {{ .Values.app.postgresExternal.username | quote }}
+    {{- if .Values.app.postgresExternal.passwordSecretName }}
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.postgresExternal.passwordSecretName | quote }}
+                      key: {{ .Values.app.postgresExternal.passwordSecretKey | default "POSTGRES_PASSWORD" | quote }}
+    {{- end }}
+  {{- else if and .Values.app.databaseUrl .Values.app.databaseUrl.existingSecret }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.databaseUrl.existingSecret | quote }}
+                      key: {{ .Values.app.databaseUrl.key | default "DATABASE_URL" | quote }}
+  {{- else }}
+    {{- fail "External PostgreSQL configuration is required when postgresql.enabled=false. Provide app.postgresExternal or app.databaseUrl." }}
+  {{- end }}
 {{- end }}

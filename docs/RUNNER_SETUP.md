@@ -55,7 +55,23 @@ and add:
 That's the only secret the deploy workflow needs.  `GITHUB_TOKEN` is provided
 automatically by GitHub for the test and publish jobs.
 
-### 5. Create the Kubernetes namespace (first time only)
+### 5. Generate and add VAPID keys for Web Push (Optional)
+
+To enable browser push notifications, you need a pair of VAPID keys. You can generate them by running:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Once generated, add the public and private keys as GitHub Actions **Secrets**, and the claims email as a GitHub Actions **Variable** (under Settings → Secrets and variables → Actions):
+
+| Name | Type | Value |
+|------|------|-------|
+| `VAPID_PUBLIC_KEY` | Secret | The generated VAPID public key |
+| `VAPID_PRIVATE_KEY` | Secret | The generated VAPID private key |
+| `VAPID_EMAIL` | Variable | The contact email address (e.g., `admin@example.com`) |
+
+### 6. Create the Kubernetes namespace (first time only)
 
 ```bash
 kubectl create namespace news-dashboard --dry-run=client -o yaml | kubectl apply -f -

@@ -121,6 +121,26 @@ spec:
                   optional: true
 {{- end }}
 {{- end }}
+{{- if .Values.app.push }}
+{{- if .Values.app.push.existingSecret }}
+            - name: VAPID_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.push.existingSecret | quote }}
+                  key: {{ .Values.app.push.vapidPublicKeyKey | default "VAPID_PUBLIC_KEY" | quote }}
+                  optional: true
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.push.existingSecret | quote }}
+                  key: {{ .Values.app.push.vapidPrivateKeyKey | default "VAPID_PRIVATE_KEY" | quote }}
+                  optional: true
+{{- end }}
+{{- if .Values.app.push.email }}
+            - name: VAPID_EMAIL
+              value: {{ .Values.app.push.email | quote }}
+{{- end }}
+{{- end }}
 {{- if .Values.app.auth.enabled }}
             - name: KEYCLOAK_AUTH_ENABLED
               value: "1"

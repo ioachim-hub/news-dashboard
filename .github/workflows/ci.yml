@@ -253,6 +253,9 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_EMAIL: ${{ vars.VAPID_EMAIL }}
         run: |
           set -euo pipefail
 
@@ -306,6 +309,25 @@ jobs:
             ai_helm_args+=(--set-string "app.ai.langfuse.host=$LANGFUSE_HOST")
           fi
 
+          push_secret_args=()
+          if [ -n "$VAPID_PUBLIC_KEY" ]; then
+            push_secret_args+=(--from-literal=VAPID_PUBLIC_KEY="$VAPID_PUBLIC_KEY")
+          fi
+          if [ -n "$VAPID_PRIVATE_KEY" ]; then
+            push_secret_args+=(--from-literal=VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY")
+          fi
+
+          push_helm_args=()
+          if [ ${#push_secret_args[@]} -gt 0 ]; then
+            kubectl -n news-dashboard create secret generic news-dashboard-push \
+              "${push_secret_args[@]}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            push_helm_args+=(--set app.push.existingSecret=news-dashboard-push)
+          fi
+          if [ -n "$VAPID_EMAIL" ]; then
+            push_helm_args+=(--set-string "app.push.email=$VAPID_EMAIL")
+          fi
+
           # Sync Helm chart changes from main. Avoid relying on the deploy
           # host clone's branch/upstream config, which may point at a deleted
           # feature branch.
@@ -327,6 +349,7 @@ jobs:
             --set ingress.enabled=false
             --set-string app.auth.sessionSecret="$SESSION_SECRET"
             "${ai_helm_args[@]}"
+            "${push_helm_args[@]}"
           )
           helm "${helm_args[@]}"
 

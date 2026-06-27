@@ -47,6 +47,8 @@ Runtime storage is PostgreSQL only. Set `DATABASE_URL` or the split
 | `OPENAI_BRIEFING_BASE_URL`, `OPENAI_BRIEFING_API_KEY` | Point briefing generation at an OpenAI-compatible endpoint (e.g. a self-hosted gateway). Optional; falls back to `OPENAI_BASE_URL` / `OPENAI_API_KEY`. Pair with `OPENAI_BRIEFING_MODEL` (use `auto` for a routing gateway). |
 | `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Traces every OpenAI call (embeddings, Ask AI, briefings, insights, TTS, body fetch) in [Langfuse](https://langfuse.com), each tagged with a descriptive name (`ask-ai`, `briefing-generation`, …). Tracing activates only when both keys are set; otherwise the app uses a plain OpenAI client with no tracing. `LANGFUSE_BASE_URL` is accepted as an alias for `LANGFUSE_HOST`. |
 | `KEYCLOAK_AUTH_ENABLED`, `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Enables Keycloak. See [docs/KEYCLOAK_AUTH.md](docs/KEYCLOAK_AUTH.md). |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | VAPID public and private keys for Web Push notifications. Generate using `npx web-push generate-vapid-keys`. |
+| `VAPID_EMAIL` | Contact email address used in VAPID claims mailto link. Defaults to `admin@example.com` if unset. |
 | `CORS_ORIGINS` | Comma-separated browser dev origins. |
 
 SQLite is supported only as a legacy import source for

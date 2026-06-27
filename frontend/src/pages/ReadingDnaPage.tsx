@@ -260,7 +260,9 @@ function LearningCenter() {
       .finally(() => setLoadingQuiz(false));
     fetchQuizCandidates()
       .then(setCandidates)
-      .catch(() => setCandidates([]));
+      .catch(() => {
+        // leave candidates null so the default UI renders when the endpoint is unavailable
+      });
     void refreshQuizHistory();
   }, []);
 

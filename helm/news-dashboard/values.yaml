@@ -74,6 +74,13 @@ app:
       # Keys within `app.ai.existingSecret` holding the Langfuse credentials.
       publicKeyKey: LANGFUSE_PUBLIC_KEY
       secretKeyKey: LANGFUSE_SECRET_KEY
+  push:
+    # Optional: pre-existing Secret with VAPID keys.
+    existingSecret: ""
+    vapidPublicKeyKey: VAPID_PUBLIC_KEY
+    vapidPrivateKeyKey: VAPID_PRIVATE_KEY
+    # VAPID claims email address. Omit or leave empty to default safely.
+    email: ""
 
 ingestCronJob:
   enabled: true

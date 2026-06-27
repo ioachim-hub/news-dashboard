@@ -102,8 +102,8 @@ def test_verify_session_token_rejects_garbage(monkeypatch: pytest.MonkeyPatch) -
 def test_me_rejects_invalid_session_cookie(tmp_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_SESSION_SECRET", "x" * 32)
     app.dependency_overrides.clear()
-    client = TestClient(app)
-    resp = client.get("/api/auth/me", cookies={"nd_session": "tampered"})
+    with TestClient(app) as client:
+        resp = client.get("/api/auth/me", cookies={"nd_session": "tampered"})
     assert resp.status_code == 401
 
 
@@ -114,8 +114,8 @@ def test_me_rejects_when_user_missing(tmp_db: str, monkeypatch: pytest.MonkeyPat
     from news_dashboard.auth import create_session_token
 
     token = create_session_token(999999, is_admin=False)
-    client = TestClient(app)
-    resp = client.get("/api/auth/me", cookies={"nd_session": token})
+    with TestClient(app) as client:
+        resp = client.get("/api/auth/me", cookies={"nd_session": token})
     assert resp.status_code == 401
 
 
@@ -206,61 +206,63 @@ def test_exchange_success_creates_user(tmp_db: str, monkeypatch: pytest.MonkeyPa
 
 def test_admin_get_user_found_and_missing(tmp_db: str) -> None:
     created = create_user("dora", "pw123456", email="dora@example.com")
-    client = TestClient(app)
-    ok = client.get(f"/api/admin/users/{created['id']}")
-    assert ok.status_code == 200
-    assert ok.json()["username"] == "dora"
-    missing = client.get("/api/admin/users/987654")
-    assert missing.status_code == 404
+    with TestClient(app) as client:
+        ok = client.get(f"/api/admin/users/{created['id']}")
+        assert ok.status_code == 200
+        assert ok.json()["username"] == "dora"
+        missing = client.get("/api/admin/users/987654")
+        assert missing.status_code == 404
 
 
 def test_admin_update_password_found_and_missing(tmp_db: str) -> None:
     created = create_user("evan", "pw123456")
-    client = TestClient(app)
-    ok = client.patch(f"/api/admin/users/{created['id']}/password", json={"password": "newpass123"})
-    assert ok.status_code == 200
-    assert ok.json()["status"] == "updated"
-    missing = client.patch("/api/admin/users/987654/password", json={"password": "newpass123"})
-    assert missing.status_code == 404
+    with TestClient(app) as client:
+        ok = client.patch(
+            f"/api/admin/users/{created['id']}/password", json={"password": "newpass123"}
+        )
+        assert ok.status_code == 200
+        assert ok.json()["status"] == "updated"
+        missing = client.patch("/api/admin/users/987654/password", json={"password": "newpass123"})
+        assert missing.status_code == 404
 
 
 def test_admin_create_user_conflict_on_duplicate(tmp_db: str) -> None:
-    client = TestClient(app)
-    first = client.post("/api/admin/users", json={"username": "frank", "password": "pw123456"})
-    assert first.status_code == 200
-    dup = client.post("/api/admin/users", json={"username": "frank", "password": "pw123456"})
-    assert dup.status_code == 409
+    with TestClient(app) as client:
+        first = client.post("/api/admin/users", json={"username": "frank", "password": "pw123456"})
+        assert first.status_code == 200
+        dup = client.post("/api/admin/users", json={"username": "frank", "password": "pw123456"})
+        assert dup.status_code == 409
 
 
 def test_admin_generate_user_returns_credentials(tmp_db: str) -> None:
-    client = TestClient(app)
-    resp = client.post("/api/admin/users/generate", json={"username": "grace"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["username"] == "grace"
-    assert body["is_admin"] is False
-    # The generated password is returned once and must actually log the user in.
-    assert isinstance(body["password"], str)
-    assert len(body["password"]) >= 12
-    login = client.post(
-        "/api/auth/login",
-        json={"username": "grace", "password": body["password"]},
-    )
-    assert login.status_code == 200
+    with TestClient(app) as client:
+        resp = client.post("/api/admin/users/generate", json={"username": "grace"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["username"] == "grace"
+        assert body["is_admin"] is False
+        # The generated password is returned once and must actually log the user in.
+        assert isinstance(body["password"], str)
+        assert len(body["password"]) >= 12
+        login = client.post(
+            "/api/auth/login",
+            json={"username": "grace", "password": body["password"]},
+        )
+        assert login.status_code == 200
 
 
 def test_admin_generate_user_rejects_blank_username(tmp_db: str) -> None:
-    client = TestClient(app)
-    resp = client.post("/api/admin/users/generate", json={"username": "   "})
-    assert resp.status_code == 422
+    with TestClient(app) as client:
+        resp = client.post("/api/admin/users/generate", json={"username": "   "})
+        assert resp.status_code == 422
 
 
 def test_admin_generate_user_conflict_on_duplicate(tmp_db: str) -> None:
-    client = TestClient(app)
-    first = client.post("/api/admin/users/generate", json={"username": "heidi"})
-    assert first.status_code == 200
-    dup = client.post("/api/admin/users/generate", json={"username": "heidi"})
-    assert dup.status_code == 409
+    with TestClient(app) as client:
+        first = client.post("/api/admin/users/generate", json={"username": "heidi"})
+        assert first.status_code == 200
+        dup = client.post("/api/admin/users/generate", json={"username": "heidi"})
+        assert dup.status_code == 409
 
 
 def test_admin_generate_user_uses_keycloak_when_enabled(
@@ -277,8 +279,8 @@ def test_admin_generate_user_uses_keycloak_when_enabled(
         return {"id": "kc-1", "username": username, "email": None, "temporary": True}
 
     monkeypatch.setattr("news_dashboard.keycloak_admin.create_keycloak_user", fake_create)
-    client = TestClient(app)
-    resp = client.post("/api/admin/users/generate", json={"username": "ivan"})
+    with TestClient(app) as client:
+        resp = client.post("/api/admin/users/generate", json={"username": "ivan"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "keycloak"

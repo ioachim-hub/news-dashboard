@@ -13,10 +13,12 @@ actual psycopg %s parameterisation, JSONB round-trip, and NULLS LAST ordering.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 import news_dashboard.main as main_mod
@@ -24,7 +26,12 @@ from news_dashboard.briefings import BriefingAINotConfiguredError, BriefingGener
 from news_dashboard.db import POSTGRES_SCHEMA
 from news_dashboard.main import app
 
-client = TestClient(app, raise_server_exceptions=True)
+
+@pytest.fixture
+def client() -> Generator[TestClient]:
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
 
 # ── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -109,7 +116,7 @@ def test_briefing_articles_table_columns() -> None:
 # ── GET /api/briefings/latest — empty state ───────────────────────────────────
 
 
-def test_latest_empty_state_when_no_briefing(monkeypatch: Any) -> None:
+def test_latest_empty_state_when_no_briefing(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_latest_briefing", lambda **_: None)
     resp = client.get("/api/briefings/latest")
     assert resp.status_code == 200
@@ -119,7 +126,7 @@ def test_latest_empty_state_when_no_briefing(monkeypatch: Any) -> None:
 # ── GET /api/briefings/latest — with a saved briefing ────────────────────────
 
 
-def test_latest_returns_briefing_metadata(monkeypatch: Any) -> None:
+def test_latest_returns_briefing_metadata(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_latest_briefing", lambda **_: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/latest")
     assert resp.status_code == 200
@@ -129,7 +136,7 @@ def test_latest_returns_briefing_metadata(monkeypatch: Any) -> None:
     assert data["status"] == "complete"
 
 
-def test_latest_returns_structured_content(monkeypatch: Any) -> None:
+def test_latest_returns_structured_content(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_latest_briefing", lambda **_: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/latest")
     data = resp.json()
@@ -139,7 +146,7 @@ def test_latest_returns_structured_content(monkeypatch: Any) -> None:
     assert data["content"]["worth_opening"] == [42]
 
 
-def test_latest_returns_cited_article_metadata(monkeypatch: Any) -> None:
+def test_latest_returns_cited_article_metadata(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_latest_briefing", lambda **_: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/latest")
     data = resp.json()
@@ -156,7 +163,7 @@ def test_latest_returns_cited_article_metadata(monkeypatch: Any) -> None:
 # ── GET /api/briefings — history list ────────────────────────────────────────
 
 
-def test_list_returns_items_key(monkeypatch: Any) -> None:
+def test_list_returns_items_key(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "list_briefings", lambda **_: [dict(_SAMPLE_LIST_ITEM)])
     resp = client.get("/api/briefings")
     assert resp.status_code == 200
@@ -166,14 +173,14 @@ def test_list_returns_items_key(monkeypatch: Any) -> None:
     assert data["items"][0]["id"] == 1
 
 
-def test_list_empty_when_no_briefings(monkeypatch: Any) -> None:
+def test_list_empty_when_no_briefings(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "list_briefings", lambda **_: [])
     resp = client.get("/api/briefings")
     assert resp.status_code == 200
     assert resp.json() == {"items": []}
 
 
-def test_list_items_omit_content_blob(monkeypatch: Any) -> None:
+def test_list_items_omit_content_blob(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "list_briefings", lambda **_: [dict(_SAMPLE_LIST_ITEM)])
     resp = client.get("/api/briefings")
     item = resp.json()["items"][0]
@@ -181,7 +188,7 @@ def test_list_items_omit_content_blob(monkeypatch: Any) -> None:
     assert "articles" not in item
 
 
-def test_list_respects_limit_and_offset_params(monkeypatch: Any) -> None:
+def test_list_respects_limit_and_offset_params(client: TestClient, monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
     def _mock(**kw: Any) -> list[dict[str, Any]]:
@@ -197,7 +204,7 @@ def test_list_respects_limit_and_offset_params(monkeypatch: Any) -> None:
 # ── GET /api/briefings/{id} — detail ─────────────────────────────────────────
 
 
-def test_detail_returns_full_briefing_with_articles(monkeypatch: Any) -> None:
+def test_detail_returns_full_briefing_with_articles(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/1")
     assert resp.status_code == 200
@@ -207,14 +214,14 @@ def test_detail_returns_full_briefing_with_articles(monkeypatch: Any) -> None:
     assert len(data["articles"]) == 1
 
 
-def test_detail_404_for_missing_briefing(monkeypatch: Any) -> None:
+def test_detail_404_for_missing_briefing(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: None)
     resp = client.get("/api/briefings/9999")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "briefing not found"
 
 
-def test_detail_passes_id_to_backend(monkeypatch: Any) -> None:
+def test_detail_passes_id_to_backend(client: TestClient, monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
     def _mock(bid: int, **_: Any) -> dict[str, Any] | None:
@@ -226,7 +233,7 @@ def test_detail_passes_id_to_backend(monkeypatch: Any) -> None:
     assert captured["bid"] == 7
 
 
-def test_detail_returns_scope_and_time_window(monkeypatch: Any) -> None:
+def test_detail_returns_scope_and_time_window(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/1")
     data = resp.json()
@@ -235,7 +242,9 @@ def test_detail_returns_scope_and_time_window(monkeypatch: Any) -> None:
     assert data["until_at"] is not None
 
 
-def test_detail_cited_article_has_section_and_citation_index(monkeypatch: Any) -> None:
+def test_detail_cited_article_has_section_and_citation_index(
+    client: TestClient, monkeypatch: Any
+) -> None:
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: dict(_SAMPLE_BRIEFING))
     resp = client.get("/api/briefings/1")
     article = resp.json()["articles"][0]
@@ -246,7 +255,7 @@ def test_detail_cited_article_has_section_and_citation_index(monkeypatch: Any) -
 # ── POST /api/briefings — generate ───────────────────────────────────────────
 
 
-def test_create_returns_briefing_on_success(monkeypatch: Any) -> None:
+def test_create_returns_briefing_on_success(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(main_mod, "generate_briefing", lambda **_: dict(_SAMPLE_BRIEFING))
     resp = client.post("/api/briefings")
     assert resp.status_code == 200
@@ -256,14 +265,16 @@ def test_create_returns_briefing_on_success(monkeypatch: Any) -> None:
     assert "articles" in data
 
 
-def test_create_returns_no_candidates_when_no_today_articles(monkeypatch: Any) -> None:
+def test_create_returns_no_candidates_when_no_today_articles(
+    client: TestClient, monkeypatch: Any
+) -> None:
     monkeypatch.setattr(main_mod, "generate_briefing", lambda **_: {"status": "no_candidates"})
     resp = client.post("/api/briefings")
     assert resp.status_code == 200
     assert resp.json() == {"status": "no_candidates"}
 
 
-def test_create_returns_503_when_ai_not_configured(monkeypatch: Any) -> None:
+def test_create_returns_503_when_ai_not_configured(client: TestClient, monkeypatch: Any) -> None:
     def _raise(**_: Any) -> dict[str, Any]:
         msg = "OPENAI_API_KEY not set"
         raise BriefingAINotConfiguredError(msg)
@@ -274,7 +285,7 @@ def test_create_returns_503_when_ai_not_configured(monkeypatch: Any) -> None:
     assert "OPENAI_API_KEY" in resp.json()["detail"]
 
 
-def test_create_returns_500_when_generation_fails(monkeypatch: Any) -> None:
+def test_create_returns_500_when_generation_fails(client: TestClient, monkeypatch: Any) -> None:
     def _raise(**_: Any) -> dict[str, Any]:
         msg = "AI returned invalid JSON"
         raise BriefingGenerationError(msg)
@@ -285,7 +296,9 @@ def test_create_returns_500_when_generation_fails(monkeypatch: Any) -> None:
     assert "invalid JSON" in resp.json()["detail"]
 
 
-def test_create_returns_content_and_articles_on_success(monkeypatch: Any) -> None:
+def test_create_returns_content_and_articles_on_success(
+    client: TestClient, monkeypatch: Any
+) -> None:
     monkeypatch.setattr(main_mod, "generate_briefing", lambda **_: dict(_SAMPLE_BRIEFING))
     resp = client.post("/api/briefings")
     data = resp.json()
@@ -295,7 +308,9 @@ def test_create_returns_content_and_articles_on_success(monkeypatch: Any) -> Non
     assert len(data["articles"]) > 0
 
 
-def test_create_returns_existing_briefing_inside_idempotency_window(monkeypatch: Any) -> None:
+def test_create_returns_existing_briefing_inside_idempotency_window(
+    client: TestClient, monkeypatch: Any
+) -> None:
     existing = dict(_SAMPLE_BRIEFING)
     monkeypatch.setattr(main_mod, "generate_briefing", lambda **_: existing)
     resp = client.post("/api/briefings")
@@ -303,7 +318,7 @@ def test_create_returns_existing_briefing_inside_idempotency_window(monkeypatch:
     assert resp.json()["id"] == existing["id"]
 
 
-def test_generate_podcast_endpoint_success(monkeypatch: Any) -> None:
+def test_generate_podcast_endpoint_success(client: TestClient, monkeypatch: Any) -> None:
     briefing = dict(_SAMPLE_BRIEFING)
     briefing["script"] = None
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: briefing)
@@ -326,7 +341,9 @@ def test_generate_podcast_endpoint_success(monkeypatch: Any) -> None:
     assert resp.json() == {"url": "/api/briefings/1/podcast"}
 
 
-def test_get_podcast_audio_endpoint_success(monkeypatch: Any, tmp_path: Path) -> None:
+def test_get_podcast_audio_endpoint_success(
+    client: TestClient, monkeypatch: Any, tmp_path: Path
+) -> None:
     briefing = dict(_SAMPLE_BRIEFING)
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: briefing)
 
@@ -340,7 +357,7 @@ def test_get_podcast_audio_endpoint_success(monkeypatch: Any, tmp_path: Path) ->
     assert resp.read() == b"podcast-data"
 
 
-def test_get_podcast_audio_endpoint_not_found(monkeypatch: Any) -> None:
+def test_get_podcast_audio_endpoint_not_found(client: TestClient, monkeypatch: Any) -> None:
     briefing = dict(_SAMPLE_BRIEFING)
     monkeypatch.setattr(main_mod, "get_briefing", lambda _, **__: briefing)
 
@@ -358,7 +375,7 @@ def test_get_podcast_audio_endpoint_not_found(monkeypatch: Any) -> None:
 # ── POST /api/briefings/{id}/chat ─────────────────────────────────────────────
 
 
-def test_chat_returns_reply_from_assistant(monkeypatch: Any) -> None:
+def test_chat_returns_reply_from_assistant(client: TestClient, monkeypatch: Any) -> None:
     monkeypatch.setattr(
         main_mod,
         "chat_with_briefing",
@@ -372,7 +389,7 @@ def test_chat_returns_reply_from_assistant(monkeypatch: Any) -> None:
     assert resp.json() == {"reply": "The layoffs were driven by cost cuts."}
 
 
-def test_chat_passes_history_to_backend(monkeypatch: Any) -> None:
+def test_chat_passes_history_to_backend(client: TestClient, monkeypatch: Any) -> None:
     captured: dict[str, Any] = {}
 
     def _fake(briefing_id: int, message: str, history: list[dict[str, str]], **_: Any) -> str:
@@ -396,7 +413,7 @@ def test_chat_passes_history_to_backend(monkeypatch: Any) -> None:
     assert captured["history"] == history
 
 
-def test_chat_returns_404_when_briefing_missing(monkeypatch: Any) -> None:
+def test_chat_returns_404_when_briefing_missing(client: TestClient, monkeypatch: Any) -> None:
     def _raise(*_: Any, **__: Any) -> str:
         msg = "briefing 99 not found"
         raise KeyError(msg)
@@ -406,7 +423,7 @@ def test_chat_returns_404_when_briefing_missing(monkeypatch: Any) -> None:
     assert resp.status_code == 404
 
 
-def test_chat_returns_503_when_ai_not_configured(monkeypatch: Any) -> None:
+def test_chat_returns_503_when_ai_not_configured(client: TestClient, monkeypatch: Any) -> None:
     def _raise(*_: Any, **__: Any) -> str:
         msg = "OPENAI_API_KEY not set"
         raise BriefingAINotConfiguredError(msg)

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from news_dashboard.auth import create_user
 from news_dashboard.db import connect, row_to_dict
@@ -167,16 +168,27 @@ def test_unsubscription_is_per_user(tmp_path: Path) -> None:
 # ── API layer ─────────────────────────────────────────────────────────────────
 
 
-def _api_client(db_path: Path | str | str, user_id: int, is_admin: bool = False) -> Any:
-    from fastapi.testclient import TestClient
+def _api_client(db_path: Path | str, user_id: int, is_admin: bool = False) -> Any:
+    from collections.abc import Generator
+    from contextlib import contextmanager
 
     from news_dashboard.auth import require_admin, require_auth
     from news_dashboard.main import app
 
     fake = {"id": user_id, "username": "testuser", "email": None, "is_admin": is_admin}
-    app.dependency_overrides[require_auth] = lambda: fake
-    app.dependency_overrides[require_admin] = lambda: fake
-    return TestClient(app, raise_server_exceptions=True)
+
+    @contextmanager
+    def _ctx() -> Generator[TestClient]:
+        app.dependency_overrides[require_auth] = lambda: fake
+        app.dependency_overrides[require_admin] = lambda: fake
+        try:
+            with TestClient(app, raise_server_exceptions=True) as c:
+                yield c
+        finally:
+            app.dependency_overrides.pop(require_auth, None)
+            app.dependency_overrides.pop(require_admin, None)
+
+    return _ctx()
 
 
 def test_api_list_sources_returns_subscription_status(
@@ -186,20 +198,13 @@ def test_api_list_sources_returns_subscription_status(
     sync_sources(pg_clean)
     uid = _make_user(pg_clean)
 
-    client = _api_client(pg_clean, uid)
-    try:
+    with _api_client(pg_clean, uid) as client:
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) > 0
         # All global sources are subscribed by default
         assert all(i["subscribed"] for i in items)
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_api_create_private_source(pg_clean: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,8 +212,7 @@ def test_api_create_private_source(pg_clean: str, monkeypatch: pytest.MonkeyPatc
     sync_sources(pg_clean)
     uid = _make_user(pg_clean)
 
-    client = _api_client(pg_clean, uid)
-    try:
+    with _api_client(pg_clean, uid) as client:
         resp = client.post(
             "/api/sources",
             json={
@@ -227,12 +231,6 @@ def test_api_create_private_source(pg_clean: str, monkeypatch: pytest.MonkeyPatc
         resp2 = client.get("/api/sources")
         slugs = [i["slug"] for i in resp2.json()["items"]]
         assert "my-blog" in slugs
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_api_private_source_not_visible_to_other_user(
@@ -244,8 +242,7 @@ def test_api_private_source_not_visible_to_other_user(
     uid_b = _make_user(pg_clean, "bob")
 
     # Alice creates a private source
-    client_a = _api_client(pg_clean, uid_a)
-    try:
+    with _api_client(pg_clean, uid_a) as client_a:
         resp = client_a.post(
             "/api/sources",
             json={
@@ -255,25 +252,12 @@ def test_api_private_source_not_visible_to_other_user(
             },
         )
         assert resp.status_code == 200
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
     # Bob doesn't see it
-    client_b = _api_client(pg_clean, uid_b)
-    try:
+    with _api_client(pg_clean, uid_b) as client_b:
         resp2 = client_b.get("/api/sources")
         slugs = [i["slug"] for i in resp2.json()["items"]]
         assert "alice-blog" not in slugs
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_api_delete_own_private_source(pg_clean: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,8 +265,7 @@ def test_api_delete_own_private_source(pg_clean: str, monkeypatch: pytest.Monkey
     sync_sources(pg_clean)
     uid = _make_user(pg_clean)
 
-    client = _api_client(pg_clean, uid)
-    try:
+    with _api_client(pg_clean, uid) as client:
         client.post(
             "/api/sources",
             json={
@@ -294,12 +277,6 @@ def test_api_delete_own_private_source(pg_clean: str, monkeypatch: pytest.Monkey
         resp = client.delete("/api/sources/to-delete")
         assert resp.status_code == 200
         assert resp.json()["status"] == "deleted"
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_api_cannot_delete_others_source(pg_clean: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,8 +285,7 @@ def test_api_cannot_delete_others_source(pg_clean: str, monkeypatch: pytest.Monk
     uid_a = _make_user(pg_clean, "alice")
     uid_b = _make_user(pg_clean, "bob")
 
-    client_a = _api_client(pg_clean, uid_a)
-    try:
+    with _api_client(pg_clean, uid_a) as client_a:
         client_a.post(
             "/api/sources",
             json={
@@ -318,23 +294,10 @@ def test_api_cannot_delete_others_source(pg_clean: str, monkeypatch: pytest.Monk
                 "slug": "alice-src",
             },
         )
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
 
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
-
-    client_b = _api_client(pg_clean, uid_b)
-    try:
+    with _api_client(pg_clean, uid_b) as client_b:
         resp = client_b.delete("/api/sources/alice-src")
         assert resp.status_code == 403
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_api_toggle_subscription(pg_clean: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,8 +306,7 @@ def test_api_toggle_subscription(pg_clean: str, monkeypatch: pytest.MonkeyPatch)
     uid = _make_user(pg_clean)
 
     slug = _global_slug(pg_clean)
-    client = _api_client(pg_clean, uid)
-    try:
+    with _api_client(pg_clean, uid) as client:
         # Unsubscribe
         resp = client.patch(f"/api/sources/{slug}/enabled", json={"enabled": False})
         assert resp.status_code == 200
@@ -354,9 +316,3 @@ def test_api_toggle_subscription(pg_clean: str, monkeypatch: pytest.MonkeyPatch)
         resp2 = client.patch(f"/api/sources/{slug}/enabled", json={"enabled": True})
         assert resp2.status_code == 200
         assert resp2.json()["subscribed"] is True
-    finally:
-        from news_dashboard.auth import require_admin, require_auth
-        from news_dashboard.main import app
-
-        app.dependency_overrides.pop(require_auth, None)
-        app.dependency_overrides.pop(require_admin, None)

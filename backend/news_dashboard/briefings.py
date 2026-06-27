@@ -172,22 +172,16 @@ def _current_day_since_at(until_at: datetime) -> datetime:
 
 
 def _briefing_ai_config() -> tuple[str, str | None]:
-    """Resolve the (api_key, base_url) for briefing generation.
+    """Resolve the (api_key, base_url) for briefing generation via the free LLM gateway."""
+    from news_dashboard.ai_client import free_llm_config
 
-    Briefings can target any OpenAI-compatible endpoint (e.g. a self-hosted
-    gateway) via ``OPENAI_BRIEFING_BASE_URL`` / ``OPENAI_BRIEFING_API_KEY``,
-    falling back to the shared ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY`` used by
-    the rest of the app. The base URL is optional; when unset the official
-    OpenAI endpoint is used.
-    """
-    api_key = os.getenv("OPENAI_BRIEFING_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key, base_url = free_llm_config()
     if not api_key:
         msg = (
-            "Briefing generation requires an API key. Set OPENAI_BRIEFING_API_KEY "
+            "Briefing generation requires an API key. Set FREE_LLM_API_KEY "
             "(or OPENAI_API_KEY) in the app environment."
         )
         raise BriefingAINotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_BRIEFING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     return api_key, base_url
 
 

@@ -84,27 +84,16 @@ def embedding_text(
 
 
 def _embeddings_ai_config() -> tuple[str, str | None, str]:
-    """Resolve the (api_key, base_url) for embedding generation.
+    """Resolve the (api_key, base_url, model) for embedding generation via the free LLM gateway."""
+    from news_dashboard.ai_client import free_llm_config
 
-    Embeddings can target any OpenAI-compatible endpoint (e.g. a self-hosted
-    gateway) via ``OPENAI_EMBEDDINGS_BASE_URL`` / ``OPENAI_EMBEDDINGS_API_KEY``,
-    falling back to the briefing gateway and then the shared
-    ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``. The base URL is optional; when
-    unset the official OpenAI endpoint is used.
-    """
-    api_key = os.getenv("OPENAI_EMBEDDINGS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key, base_url = free_llm_config()
     if not api_key:
         msg = (
-            "Ask AI requires OPENAI_EMBEDDINGS_API_KEY (or OPENAI_API_KEY) to "
+            "Ask AI requires FREE_LLM_API_KEY (or OPENAI_API_KEY) to "
             "generate article embeddings. Set it in the app environment."
         )
         raise MissingAICredentialsError(msg)
-    base_url = (
-        os.getenv("OPENAI_EMBEDDINGS_BASE_URL")
-        or os.getenv("OPENAI_BRIEFING_BASE_URL")
-        or os.getenv("OPENAI_BASE_URL")
-        or None
-    )
     model = os.getenv("OPENAI_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     return api_key, base_url, model
 
@@ -131,12 +120,11 @@ def _answer(
     prompt: ManagedPrompt | None = None,
 ) -> str:
     """Generate an answer via the free LLM gateway when configured, else OpenAI."""
-    from news_dashboard.ai_client import chat_create, get_openai_client
+    from news_dashboard.ai_client import chat_create, free_llm_config, get_openai_client
 
-    api_key = os.getenv("OPENAI_ANSWER_API_KEY") or _require_env("OPENAI_API_KEY", "use Ask AI")
-    base_url: str | None = (
-        os.getenv("OPENAI_ANSWER_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
-    )
+    api_key, base_url = free_llm_config()
+    if not api_key:
+        _require_env("FREE_LLM_API_KEY", "use Ask AI")
     client = get_openai_client(api_key=api_key, base_url=base_url)
     response = chat_create(
         client,

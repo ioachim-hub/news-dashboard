@@ -87,23 +87,19 @@ def test_generate_audio_raises_when_no_api_key(tmp_path: Path) -> None:
             generate_audio(42, _ARTICLE, data_dir=tmp_path)
 
 
-def test_tts_ai_config_uses_tts_specific_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway:9130/v1")
-    monkeypatch.setenv("OPENAI_TTS_API_KEY", "sk-tts")
-    monkeypatch.setenv("OPENAI_TTS_BASE_URL", "http://tts-gateway:9130/v1")
+def test_tts_ai_config_uses_openai_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://openai-base/v1")
 
     api_key, base_url = _tts_ai_config()
 
-    assert api_key == "sk-tts"
-    assert base_url == "http://tts-gateway:9130/v1"
+    assert api_key == "sk-openai"
+    assert base_url == "http://openai-base/v1"
 
 
 def test_tts_ai_config_uses_shared_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway:9130/v1")
-    monkeypatch.delenv("OPENAI_TTS_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_TTS_BASE_URL", raising=False)
 
     api_key, base_url = _tts_ai_config()
 
@@ -111,11 +107,9 @@ def test_tts_ai_config_uses_shared_gateway(monkeypatch: pytest.MonkeyPatch) -> N
     assert base_url == "http://shared-gateway:9130/v1"
 
 
-def test_tts_ai_config_falls_back_to_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tts_ai_config_no_base_url_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_TTS_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_TTS_BASE_URL", raising=False)
 
     api_key, base_url = _tts_ai_config()
 
@@ -247,21 +241,22 @@ def test_generate_audio_creates_audio_directory(tmp_path: Path) -> None:
 # ── _script_ai_config ─────────────────────────────────────────────────────────
 
 
-def test_script_ai_config_uses_briefing_specific_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_BRIEFING_API_KEY", "sk-briefing")
-    monkeypatch.setenv("OPENAI_BRIEFING_BASE_URL", "http://briefing-gw:9130/v1")
+def test_script_ai_config_uses_free_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREE_LLM_API_KEY", "sk-free-llm")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://free-gw:9130/v1")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     api_key, base_url = _script_ai_config()
 
-    assert api_key == "sk-briefing"
-    assert base_url == "http://briefing-gw:9130/v1"
+    assert api_key == "sk-free-llm"
+    assert base_url == "http://free-gw:9130/v1"
 
 
 def test_script_ai_config_falls_back_to_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
-    monkeypatch.delenv("OPENAI_BRIEFING_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     api_key, base_url = _script_ai_config()
 
@@ -270,7 +265,7 @@ def test_script_ai_config_falls_back_to_openai_key(monkeypatch: pytest.MonkeyPat
 
 
 def test_script_ai_config_raises_when_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_BRIEFING_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(TTSNotConfiguredError):
@@ -295,7 +290,7 @@ def test_generate_podcast_script() -> None:
         )
     ]
     with (
-        patch.dict("os.environ", {"OPENAI_BRIEFING_API_KEY": "sk-briefing"}),
+        patch.dict("os.environ", {"FREE_LLM_API_KEY": "sk-free-llm"}),
         patch("news_dashboard.ai_client.chat_create", return_value=mock_response),
     ):
         script = generate_podcast_script(
@@ -314,10 +309,10 @@ def test_generate_podcast_script() -> None:
     assert script[1]["text"] == "Hi Alex!"
 
 
-def test_generate_podcast_script_raises_when_no_briefing_key(
+def test_generate_podcast_script_raises_when_no_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("OPENAI_BRIEFING_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(TTSNotConfiguredError):

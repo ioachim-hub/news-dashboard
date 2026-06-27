@@ -377,13 +377,12 @@ def generate_recommendation_explanation(
     """
     import os
 
-    from news_dashboard.ai_client import chat_create, get_openai_client
+    from news_dashboard.ai_client import chat_create, free_llm_config, get_openai_client
 
-    api_key = os.getenv("OPENAI_BRIEFING_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key, base_url = free_llm_config()
     if not api_key:
         return None
 
-    base_url = os.getenv("OPENAI_BRIEFING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_BRIEFING_MODEL", "gpt-4o-mini")
 
     init_db(db_path, database_url=database_url)

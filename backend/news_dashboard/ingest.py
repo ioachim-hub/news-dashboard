@@ -450,7 +450,6 @@ def detect_and_translate_article(
 ) -> tuple[str, str, str, str | None]:
     """Detect language and translate title and summary to English if needed."""
     import json
-    import os
     import re
 
     from news_dashboard.ai_client import chat_create, get_openai_client
@@ -472,12 +471,14 @@ def detect_and_translate_article(
     if not is_non_eng:
         return title, summary, "en", None
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
         return title, summary, source_lang, None
 
     try:
-        client = get_openai_client(api_key=api_key)
+        client = get_openai_client(api_key=api_key, base_url=base_url)
         prompt = (
             "You are a translation assistant. Detect the language of the following text. "
             "If it is not English, translate both the title and the "

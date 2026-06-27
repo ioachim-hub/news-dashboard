@@ -67,11 +67,12 @@ def _insights_ai_config() -> tuple[str, str | None, str]:
     the shared ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``. The base URL is
     optional; when unset the official OpenAI endpoint is used.
     """
-    api_key = os.getenv("OPENAI_INSIGHTS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
-        msg = "OPENAI_API_KEY is not configured"
+        msg = "FREE_LLM_API_KEY (or OPENAI_API_KEY) is not configured"
         raise InsightsNotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_INSIGHTS_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_INSIGHTS_MODEL", DEFAULT_INSIGHTS_MODEL)
     return api_key, base_url, model
 
@@ -170,11 +171,12 @@ DEFAULT_CLUSTER_MODEL = "gpt-4o-mini"
 
 
 def _cluster_ai_config() -> tuple[str, str | None, str]:
-    api_key = os.getenv("OPENAI_INSIGHTS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
-        msg = "OPENAI_API_KEY is not configured"
+        msg = "FREE_LLM_API_KEY (or OPENAI_API_KEY) is not configured"
         raise InsightsNotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_INSIGHTS_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_INSIGHTS_MODEL", DEFAULT_CLUSTER_MODEL)
     return api_key, base_url, model
 

@@ -122,6 +122,28 @@ def chat_create(
     return cast("ChatCompletion", completion)
 
 
+def openai_config() -> tuple[str, str | None]:
+    """Return (api_key, base_url) for real-OpenAI-only features (TTS audio, body extraction).
+
+    Uses ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL``. The key may be an empty
+    string when unconfigured — callers that require it must check and raise.
+    """
+    return os.getenv("OPENAI_API_KEY", ""), os.getenv("OPENAI_BASE_URL") or None
+
+
+def free_llm_config() -> tuple[str, str | None]:
+    """Return (api_key, base_url) for the free LLM gateway (chat, embeddings, etc.).
+
+    Uses ``FREE_LLM_API_KEY`` / ``FREE_LLM_BASE_URL`` first, falling back to
+    ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` so a single-key setup still works.
+    The key may be an empty string when unconfigured — callers that require it
+    must check and raise.
+    """
+    api_key = os.getenv("FREE_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+    base_url = os.getenv("FREE_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
+    return api_key, base_url
+
+
 def get_openai_client(*, api_key: str, base_url: str | None = None) -> OpenAI:
     """Return an OpenAI client, Langfuse-wrapped when tracing is configured.
 

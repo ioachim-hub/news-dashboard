@@ -136,30 +136,38 @@ def test_build_text_empty_article_returns_empty() -> None:
 
 def test_perspectives_ai_config_raises_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_PERSPECTIVES_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     with pytest.raises(PerspectivesNotConfiguredError):
         _perspectives_ai_config()
 
 
-def test_perspectives_ai_config_uses_shared_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_perspectives_ai_config_uses_free_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREE_LLM_API_KEY", "sk-free-llm")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://gateway/v1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    api_key, base_url, model = _perspectives_ai_config()
+    assert api_key == "sk-free-llm"
+    assert base_url == "http://gateway/v1"
+    assert model == DEFAULT_PERSPECTIVES_MODEL
+
+
+def test_perspectives_ai_config_falls_back_to_openai_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway/v1")
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     api_key, base_url, model = _perspectives_ai_config()
     assert api_key == "sk-shared"
     assert base_url == "http://gateway/v1"
     assert model == DEFAULT_PERSPECTIVES_MODEL
 
 
-def test_perspectives_ai_config_prefers_perspectives_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_perspectives_ai_config_uses_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-shared")
-    monkeypatch.setenv("OPENAI_PERSPECTIVES_API_KEY", "sk-perspectives")
-    monkeypatch.setenv("OPENAI_PERSPECTIVES_BASE_URL", "http://p-gateway/v1")
     monkeypatch.setenv("OPENAI_PERSPECTIVES_MODEL", "custom-model")
-    api_key, base_url, model = _perspectives_ai_config()
-    assert api_key == "sk-perspectives"
-    assert base_url == "http://p-gateway/v1"
+    _, _, model = _perspectives_ai_config()
     assert model == "custom-model"
 
 
@@ -194,7 +202,7 @@ def test_generate_perspectives_raises_without_api_key() -> None:
     with patch.dict("os.environ", {}, clear=False):
         import os
 
-        os.environ.pop("OPENAI_PERSPECTIVES_API_KEY", None)
+        os.environ.pop("FREE_LLM_API_KEY", None)
         os.environ.pop("OPENAI_API_KEY", None)
         with pytest.raises(PerspectivesNotConfiguredError):
             generate_perspectives(_ARTICLE)

@@ -229,12 +229,13 @@ def generate_share_context(share_id: int) -> str | None:
 
     Returns None if no API key is configured or if the share doesn't exist.
     """
-    api_key = os.getenv("OPENAI_BRIEFING_API_KEY") or os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
-        logger.warning("generate_share_context: no OpenAI API key configured, skipping")
+        logger.warning("generate_share_context: no AI API key configured, skipping")
         return None
 
-    base_url = os.getenv("OPENAI_BRIEFING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_BRIEFING_MODEL", DEFAULT_SHARE_MODEL)
 
     with connect() as conn:

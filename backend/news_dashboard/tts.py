@@ -26,39 +26,32 @@ class TTSNotConfiguredError(Exception):
 
 
 def _tts_ai_config() -> tuple[str, str | None]:
-    """Resolve the (api_key, base_url) for text-to-speech generation.
+    """Resolve the (api_key, base_url) for TTS audio synthesis (OpenAI only)."""
+    from news_dashboard.ai_client import openai_config
 
-    TTS can target an OpenAI-compatible audio/speech endpoint via
-    ``OPENAI_TTS_BASE_URL`` / ``OPENAI_TTS_API_KEY``, falling back to the shared
-    ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``. When no base URL is configured the
-    official OpenAI endpoint is used.
-    """
-    api_key = os.getenv("OPENAI_TTS_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key, base_url = openai_config()
     if not api_key:
         msg = "OPENAI_API_KEY is not configured"
         raise TTSNotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_TTS_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     return api_key, base_url
 
 
 def _script_ai_config() -> tuple[str, str | None]:
     """Resolve the (api_key, base_url) for podcast script (LLM chat) generation.
 
-    Script generation is a chat-completion call, so it uses the same
-    briefing AI credentials (``OPENAI_BRIEFING_API_KEY`` /
-    ``OPENAI_BRIEFING_BASE_URL``) as every other LLM feature, falling back to
-    ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL``. This is intentionally separate
-    from ``_tts_ai_config`` because the free LLM gateway supports chat
-    completions but not the ``audio/speech`` endpoint required for TTS.
+    Script generation is a chat-completion call that works on any OpenAI-compatible
+    gateway, so it uses FREE_LLM_API_KEY. This is intentionally separate from
+    ``_tts_ai_config`` because the free LLM gateway supports chat completions but
+    not the ``audio/speech`` endpoint required for TTS audio synthesis.
     """
-    api_key = os.getenv("OPENAI_BRIEFING_API_KEY") or os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
         msg = (
-            "Podcast script generation requires an API key. "
-            "Set OPENAI_BRIEFING_API_KEY or OPENAI_API_KEY"
+            "Podcast script generation requires an API key. Set FREE_LLM_API_KEY or OPENAI_API_KEY"
         )
         raise TTSNotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_BRIEFING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     return api_key, base_url
 
 

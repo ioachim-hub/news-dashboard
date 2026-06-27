@@ -157,14 +157,14 @@ def test_insights_ai_config_uses_gateway_when_configured(
     assert model == DEFAULT_INSIGHTS_MODEL
 
 
-def test_insights_ai_config_prefers_insights_gateway_settings(
+def test_insights_ai_config_uses_free_llm_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway/v1")
-    monkeypatch.setenv("OPENAI_INSIGHTS_API_KEY", "freellmapi-key")
-    monkeypatch.setenv("OPENAI_INSIGHTS_BASE_URL", "http://insights-gateway/v1")
+    monkeypatch.setenv("FREE_LLM_API_KEY", "freellmapi-key")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://insights-gateway/v1")
     monkeypatch.setenv("OPENAI_INSIGHTS_MODEL", "gateway-chat-model")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     api_key, base_url, model = _insights_ai_config()
 

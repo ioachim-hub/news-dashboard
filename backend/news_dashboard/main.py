@@ -22,11 +22,16 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as StarletteResponse
 
-from news_dashboard.analytics import admin_analytics, reading_dna, record_events
+from news_dashboard.analytics import (
+    MAX_EVENTS_PER_BATCH,
+    admin_analytics,
+    reading_dna,
+    record_events,
+)
 from news_dashboard.auth import (
     _session_days,
     authenticate,
@@ -225,7 +230,7 @@ class AnalyticsEvent(BaseModel):
 
 
 class AnalyticsEventsRequest(BaseModel):
-    events: list[AnalyticsEvent]
+    events: list[AnalyticsEvent] = Field(max_length=MAX_EVENTS_PER_BATCH)
 
 
 # ── Public auth routes (no session required) ──────────────────────────────────

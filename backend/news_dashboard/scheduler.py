@@ -74,6 +74,21 @@ def _run_daily_recommendation_recalc() -> None:
         logger.exception("Daily recommendation recalculation failed")
 
 
+def _run_analytics_retention() -> None:
+    from news_dashboard.analytics import DEFAULT_EVENT_RETENTION_DAYS, prune_old_events
+
+    retention_days = int(os.getenv("ANALYTICS_RETENTION_DAYS", str(DEFAULT_EVENT_RETENTION_DAYS)))
+    try:
+        deleted = prune_old_events(retention_days=retention_days)
+        logger.info(
+            "Analytics retention pruned %d events older than %d days",
+            deleted,
+            retention_days,
+        )
+    except Exception:
+        logger.exception("Analytics retention failed")
+
+
 def _run_briefing() -> None:
     from news_dashboard.briefings import (
         BriefingAINotConfiguredError,
@@ -248,6 +263,15 @@ def start_scheduler() -> None:
         hour=r_hour,
         minute=r_minute,
         id="recommendations",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        _run_analytics_retention,
+        trigger="cron",
+        hour="3",
+        minute="0",
+        id="analytics_retention",
         replace_existing=True,
     )
 

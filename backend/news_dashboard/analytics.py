@@ -18,6 +18,9 @@ from news_dashboard.db import connect, init_db
 logger = logging.getLogger(__name__)
 
 ALLOWED_EVENT_TYPES = frozenset({"heartbeat", "route", "article_open", "article_close", "feature"})
+# Backend ingestion cap for one telemetry request or direct record_events() call.
+MAX_EVENTS_PER_BATCH = 250
+DEFAULT_EVENT_RETENTION_DAYS = 180
 # Clamp a single heartbeat's reported active time so a misbehaving or malicious
 # client cannot inflate time-on-app. The tracker beats every 15s; 5 min is slack.
 MAX_HEARTBEAT_MS = 5 * 60 * 1000
@@ -34,7 +37,7 @@ def record_events(
     """Bulk-insert validated telemetry events for ``user_id``; return the count stored."""
     init_db(db_path, database_url=database_url)
     rows: list[tuple[int, str, str | None, int | None, str | None, int | None]] = []
-    for event in events:
+    for event in events[:MAX_EVENTS_PER_BATCH]:
         event_type = str(event.get("type") or "")
         if event_type not in ALLOWED_EVENT_TYPES:
             continue
@@ -59,6 +62,20 @@ def record_events(
             rows,
         )
     return len(rows)
+
+
+def prune_old_events(
+    retention_days: int = DEFAULT_EVENT_RETENTION_DAYS,
+    db_path: Path | str | None = None,
+    database_url: str | None = None,
+) -> int:
+    """Delete telemetry older than the retention window; return deleted rows."""
+    init_db(db_path, database_url=database_url)
+    retention_days = max(1, retention_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    with connect(db_path, database_url=database_url) as conn:
+        result = conn.execute("DELETE FROM user_events WHERE created_at < %s", (cutoff,))
+        return int(result.rowcount or 0)
 
 
 def admin_analytics(

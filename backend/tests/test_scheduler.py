@@ -173,6 +173,18 @@ def test_start_scheduler_briefing_uses_cron_trigger(monkeypatch: pytest.MonkeyPa
     assert briefing_call.kwargs["trigger"] == "cron"
 
 
+def test_start_scheduler_registers_analytics_retention_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch)
+    retention_call = next(
+        c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "analytics_retention"
+    )
+    assert retention_call.kwargs["trigger"] == "cron"
+    assert retention_call.kwargs["hour"] == "3"
+    assert retention_call.kwargs["minute"] == "0"
+
+
 def test_start_scheduler_briefing_fn_is_run_briefing(monkeypatch: pytest.MonkeyPatch) -> None:
     from news_dashboard.scheduler import _run_briefing as expected_fn
 

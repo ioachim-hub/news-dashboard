@@ -18,6 +18,7 @@ import type {
   PersonalizationNudge,
   PushSubscribeRequest,
   Quiz,
+  QuizCandidate,
   QuizResult,
   ReadingDna,
   ReadingGoal,
@@ -511,6 +512,11 @@ export async function createGoal(description: string, keywords: string): Promise
 
 export async function deleteGoal(goalId: number): Promise<void> {
   await requestJson(`/api/goals/${goalId}`, { method: 'DELETE' });
+}
+
+export async function fetchQuizCandidates(): Promise<QuizCandidate[]> {
+  const data = await requestJson<{ candidates: QuizCandidate[] }>('/api/quizzes/candidates');
+  return data.candidates;
 }
 
 export async function fetchLatestQuiz(): Promise<Quiz | null> {

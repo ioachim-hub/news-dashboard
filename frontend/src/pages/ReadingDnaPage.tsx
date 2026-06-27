@@ -6,6 +6,7 @@ import {
   deleteGoal,
   fetchGoals,
   fetchLatestQuiz,
+  fetchQuizCandidates,
   fetchReadingDna,
   fetchRecommendationPreferences,
   generateQuiz,
@@ -14,6 +15,7 @@ import {
 } from '../api';
 import type {
   Quiz,
+  QuizCandidate,
   QuizQuestion,
   QuizResult,
   ReadingDna,
@@ -229,6 +231,7 @@ function LearningCenter() {
   const [newKeywords, setNewKeywords] = useState('');
   const [addingGoal, setAddingGoal] = useState(false);
   const [showGoalForm, setShowGoalForm] = useState(false);
+  const [candidates, setCandidates] = useState<QuizCandidate[] | null>(null);
 
   useEffect(() => {
     fetchGoals()
@@ -244,6 +247,9 @@ function LearningCenter() {
       })
       .catch(() => setQuiz(null))
       .finally(() => setLoadingQuiz(false));
+    fetchQuizCandidates()
+      .then(setCandidates)
+      .catch(() => setCandidates([]));
   }, []);
 
   async function handleAddGoal() {
@@ -409,8 +415,42 @@ function LearningCenter() {
             onSubmit={() => void handleSubmitQuiz()}
             submitting={submitting}
           />
+        ) : candidates !== null && candidates.length === 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              No quiz material yet. Mark articles as done while reading to build up quiz content.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Quizzes draw from articles you finished in the last 7 days.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
+            {candidates && candidates.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Quiz will draw from
+                </p>
+                <ul className="space-y-1">
+                  {candidates.slice(0, 5).map((c) => (
+                    <li key={c.id} className="flex items-start gap-2 text-xs">
+                      <span className="mt-0.5 shrink-0 text-muted-foreground">·</span>
+                      <span className="min-w-0">
+                        <span className="font-medium">{c.title}</span>
+                        {(c.source_name ?? c.category) && (
+                          <span className="ml-1 text-muted-foreground">
+                            {[c.source_name ?? null, c.category ?? null]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </span>
+                        )}
+                        {c.goal_matched && <span className="ml-1 text-primary">✓ goal</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               No quiz yet. Generate one based on your recent reading.
             </p>

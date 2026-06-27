@@ -4,11 +4,9 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-import feedparser
-
 import news_dashboard.ingest as ingest_module
 from news_dashboard.db import connect
-from news_dashboard.ingest import ingest_all
+from news_dashboard.ingest import FeedFetchError, ingest_all
 from news_dashboard.ingest_events import (
     IngestStreamEvent,
     format_sse_event,
@@ -19,13 +17,6 @@ from news_dashboard.main import app
 from news_dashboard.sources import SourceDefinition
 
 
-class ParsedFeed:
-    bozo = False
-
-    def __init__(self, entries: list[dict[str, Any]]) -> None:
-        self.entries = entries
-
-
 def test_ingest_all_writes_run_rows_and_buffers_terminal_lines(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -34,20 +25,18 @@ def test_ingest_all_writes_run_rows_and_buffers_terminal_lines(
     ingest_events.reset_for_tests()
     monkeypatch.setattr(ingest_module, "DEFAULT_SOURCES", [source])
 
-    def parse(url: str, agent: str) -> ParsedFeed:
+    def fake_parse_url(url: str) -> list[dict[str, object]]:
         assert url == source.url
-        assert "news-dashboard" in agent
-        return ParsedFeed(
-            [
-                {
-                    "link": "https://example.com/article?utm_source=test",
-                    "title": "Python release notes",
-                    "summary": "A useful release summary.",
-                }
-            ]
-        )
+        return [
+            {
+                "url": "https://example.com/article",
+                "title": "Python release notes",
+                "description": "A useful release summary.",
+                "date": None,
+            }
+        ]
 
-    monkeypatch.setattr(feedparser, "parse", parse)
+    monkeypatch.setattr(ingest_module, "_parse_feed_url", fake_parse_url)
 
     assert ingest_all(db_path) == {"test-feed": 1}
 
@@ -78,11 +67,11 @@ def test_ingest_all_records_source_errors(tmp_path: Path, monkeypatch: Any) -> N
     ingest_events.reset_for_tests()
     monkeypatch.setattr(ingest_module, "DEFAULT_SOURCES", [source])
 
-    def parse(url: str, agent: str) -> ParsedFeed:
-        message = "connection timeout"
-        raise RuntimeError(message)
+    def fake_parse_url(_url: str) -> list[dict[str, object]]:
+        msg = "connection timeout"
+        raise FeedFetchError(msg)
 
-    monkeypatch.setattr(feedparser, "parse", parse)
+    monkeypatch.setattr(ingest_module, "_parse_feed_url", fake_parse_url)
 
     assert ingest_all(db_path) == {"bad-feed": -1}
 

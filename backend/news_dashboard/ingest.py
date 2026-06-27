@@ -4,6 +4,8 @@ import logging
 import re
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -376,14 +378,33 @@ _NITTER_INSTANCES: tuple[str, ...] = (
 )
 
 _FEED_AGENT = "news-dashboard/0.1 (personal; contact@lihor.ro)"
+FEED_FETCH_TIMEOUT_SECS = 15
+
+
+def _fetch_feed_content(url: str) -> bytes:
+    """Fetch raw feed bytes with an explicit timeout. Raises FeedFetchError on failure."""
+    if not url.startswith(("http:", "https:")):
+        msg = f"Refusing to fetch non-HTTP URL: {url!r}"
+        raise FeedFetchError(msg)
+    req = urllib.request.Request(url, headers={"User-Agent": _FEED_AGENT})  # noqa: S310
+    try:
+        with urllib.request.urlopen(req, timeout=FEED_FETCH_TIMEOUT_SECS) as resp:  # noqa: S310
+            return resp.read()  # type: ignore[no-any-return]
+    except TimeoutError as exc:
+        msg = f"Feed fetch timed out after {FEED_FETCH_TIMEOUT_SECS}s: {url}"
+        raise FeedFetchError(msg) from exc
+    except urllib.error.URLError as exc:
+        msg = f"Feed fetch network error: {exc.reason}"
+        raise FeedFetchError(msg) from exc
 
 
 def _parse_feed_url(url: str) -> list[dict[str, Any]]:
     """Fetch and normalize a single feed URL. Raises FeedFetchError on failure."""
-    parsed = feedparser.parse(url, agent=_FEED_AGENT)
+    content = _fetch_feed_content(url)
+    parsed = feedparser.parse(content)
     if parsed.bozo and not parsed.entries:
         exc = getattr(parsed, "bozo_exception", None)
-        msg = f"Feed fetch failed: {exc or 'no entries, bozo=True'}"
+        msg = f"Feed parse failed: {exc or 'no entries, bozo=True'}"
         raise FeedFetchError(msg)
     return [
         {

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import feedparser
+import urllib.error
+
 import pytest
 
 from news_dashboard.ingest import (
+    _FEED_AGENT,
     _NITTER_INSTANCES,
+    FEED_FETCH_TIMEOUT_SECS,
     FeedFetchError,
+    _fetch_feed_content,
     _fetch_nitter_feed,
     _nitter_handle,
 )
@@ -27,19 +31,16 @@ def _make_source(handle: str) -> SourceDefinition:
     )
 
 
-def _mock_ok(entries: list[dict[str, str]]) -> feedparser.FeedParserDict:
-    result = feedparser.FeedParserDict()
-    result["entries"] = [feedparser.FeedParserDict(e) for e in entries]
-    result["bozo"] = False
-    return result
-
-
-def _mock_fail() -> feedparser.FeedParserDict:
-    result = feedparser.FeedParserDict()
-    result["entries"] = []
-    result["bozo"] = True
-    result["bozo_exception"] = ConnectionError("refused")
-    return result
+def _ok_entries(entries: list[dict[str, str]]) -> list[dict[str, object]]:
+    return [
+        {
+            "url": e.get("link", ""),
+            "title": e.get("title") or "Untitled",
+            "description": "",
+            "date": None,
+        }
+        for e in entries
+    ]
 
 
 # ── handle extraction ─────────────────────────────────────────────────────────
@@ -61,17 +62,76 @@ def test_nitter_handle_mixed_case_preserved() -> None:
     assert _nitter_handle("https://x.com/ClementDelangue") == "ClementDelangue"
 
 
+# ── _fetch_feed_content ───────────────────────────────────────────────────────
+
+
+def test_fetch_feed_content_rejects_non_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(FeedFetchError, match="non-HTTP"):
+        _fetch_feed_content("ftp://example.com/feed.xml")
+
+
+def test_fetch_feed_content_rejects_file_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(FeedFetchError, match="non-HTTP"):
+        _fetch_feed_content("file:///etc/passwd")
+
+
+def test_fetch_feed_content_sends_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[str | None] = []
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return b"<rss/>"
+
+        def __enter__(self) -> _FakeResp:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def fake_urlopen(req: object, timeout: float) -> _FakeResp:
+        import urllib.request as ur
+
+        assert isinstance(req, ur.Request)
+        captured.append(req.get_header("User-agent"))
+        assert timeout == FEED_FETCH_TIMEOUT_SECS
+        return _FakeResp()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    _fetch_feed_content("https://example.com/feed.xml")
+    assert captured == [_FEED_AGENT]
+
+
+def test_fetch_feed_content_converts_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(_req: object, timeout: float) -> None:
+        msg = "timed out"
+        raise TimeoutError(msg)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(FeedFetchError, match="timed out"):
+        _fetch_feed_content("https://example.com/feed.xml")
+
+
+def test_fetch_feed_content_converts_url_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_urlopen(_req: object, timeout: float) -> None:
+        msg = "Name or service not known"
+        raise urllib.error.URLError(msg)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(FeedFetchError, match="network error"):
+        _fetch_feed_content("https://example.com/feed.xml")
+
+
 # ── successful fetch ──────────────────────────────────────────────────────────
 
 
 def test_fetch_nitter_succeeds_on_first_instance(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    def fake_parse(url: str, **_kwargs: object) -> feedparser.FeedParserDict:
+    def fake_parse_url(url: str) -> list[dict[str, object]]:
         calls.append(url)
-        return _mock_ok([{"link": "https://x.com/AnthropicAI/status/1", "title": "Hello AI"}])
+        return _ok_entries([{"link": "https://x.com/AnthropicAI/status/1", "title": "Hello AI"}])
 
-    monkeypatch.setattr("news_dashboard.ingest.feedparser.parse", fake_parse)
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
     entries = _fetch_nitter_feed(_make_source("AnthropicAI"))
 
     assert len(entries) == 1
@@ -83,10 +143,10 @@ def test_fetch_nitter_succeeds_on_first_instance(monkeypatch: pytest.MonkeyPatch
 
 
 def test_fetch_nitter_normalises_missing_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_parse(_url: str, **_kwargs: object) -> feedparser.FeedParserDict:
-        return _mock_ok([{"link": "https://x.com/sama/status/2"}])
+    def fake_parse_url(_url: str) -> list[dict[str, object]]:
+        return _ok_entries([{"link": "https://x.com/sama/status/2"}])
 
-    monkeypatch.setattr("news_dashboard.ingest.feedparser.parse", fake_parse)
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
     entries = _fetch_nitter_feed(_make_source("sama"))
     assert entries[0]["title"] == "Untitled"
 
@@ -97,13 +157,14 @@ def test_fetch_nitter_normalises_missing_title(monkeypatch: pytest.MonkeyPatch) 
 def test_fetch_nitter_falls_back_on_first_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    def fake_parse(url: str, **_kwargs: object) -> feedparser.FeedParserDict:
+    def fake_parse_url(url: str) -> list[dict[str, object]]:
         calls.append(url)
         if _NITTER_INSTANCES[0] in url:
-            return _mock_fail()
-        return _mock_ok([{"link": "https://x.com/karpathy/status/3", "title": "Post"}])
+            msg = "refused"
+            raise FeedFetchError(msg)
+        return _ok_entries([{"link": "https://x.com/karpathy/status/3", "title": "Post"}])
 
-    monkeypatch.setattr("news_dashboard.ingest.feedparser.parse", fake_parse)
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
     entries = _fetch_nitter_feed(_make_source("karpathy"))
 
     assert len(entries) == 1
@@ -113,11 +174,29 @@ def test_fetch_nitter_falls_back_on_first_failure(monkeypatch: pytest.MonkeyPatc
     assert _NITTER_INSTANCES[1] in calls[1]
 
 
-def test_fetch_nitter_raises_when_all_instances_fail(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_parse(_url: str, **_kwargs: object) -> feedparser.FeedParserDict:
-        return _mock_fail()
+def test_fetch_nitter_falls_back_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
 
-    monkeypatch.setattr("news_dashboard.ingest.feedparser.parse", fake_parse)
+    def fake_parse_url(url: str) -> list[dict[str, object]]:
+        calls.append(url)
+        if _NITTER_INSTANCES[0] in url:
+            msg = f"Feed fetch timed out after {FEED_FETCH_TIMEOUT_SECS}s: {url}"
+            raise FeedFetchError(msg)
+        return _ok_entries([{"link": "https://x.com/gdb/status/1", "title": "Timeout test"}])
+
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
+    entries = _fetch_nitter_feed(_make_source("gdb"))
+
+    assert len(entries) == 1
+    assert len(calls) == 2
+
+
+def test_fetch_nitter_raises_when_all_instances_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_parse_url(_url: str) -> list[dict[str, object]]:
+        msg = "refused"
+        raise FeedFetchError(msg)
+
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
     with pytest.raises(FeedFetchError, match="All Nitter instances failed for @ylecun"):
         _fetch_nitter_feed(_make_source("ylecun"))
 
@@ -125,11 +204,12 @@ def test_fetch_nitter_raises_when_all_instances_fail(monkeypatch: pytest.MonkeyP
 def test_fetch_nitter_tries_all_instances_before_failing(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    def fake_parse(url: str, **_kwargs: object) -> feedparser.FeedParserDict:
+    def fake_parse_url(url: str) -> list[dict[str, object]]:
         calls.append(url)
-        return _mock_fail()
+        msg = "refused"
+        raise FeedFetchError(msg)
 
-    monkeypatch.setattr("news_dashboard.ingest.feedparser.parse", fake_parse)
+    monkeypatch.setattr("news_dashboard.ingest._parse_feed_url", fake_parse_url)
     with pytest.raises(FeedFetchError):
         _fetch_nitter_feed(_make_source("gdb"))
     assert len(calls) == len(_NITTER_INSTANCES)

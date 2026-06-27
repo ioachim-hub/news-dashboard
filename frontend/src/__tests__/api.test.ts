@@ -41,9 +41,67 @@ describe('requestJson', () => {
     );
   });
 
-  it('throws on non-ok responses', async () => {
-    stubFetch(() => ({ ok: false, status: 500, statusText: 'Server Error' }));
+  it('throws on non-ok responses with status text when no body', async () => {
+    stubFetch(() => ({
+      ok: false,
+      status: 500,
+      statusText: 'Server Error',
+      json: () => Promise.reject(new SyntaxError('no json')),
+      text: () => Promise.resolve(''),
+    }));
     await expect(api.requestJson('/api/boom')).rejects.toThrow('500 Server Error');
+  });
+
+  it('includes FastAPI detail string in thrown error', async () => {
+    stubFetch(() => ({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      json: () => Promise.resolve({ detail: 'Invalid briefing time' }),
+      text: () => Promise.resolve('{"detail":"Invalid briefing time"}'),
+    }));
+    await expect(api.requestJson('/api/briefings')).rejects.toThrow('Invalid briefing time');
+  });
+
+  it('joins Pydantic validation error array into readable message', async () => {
+    stubFetch(() => ({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      json: () =>
+        Promise.resolve({
+          detail: [
+            { msg: 'field required', loc: ['body', 'name'] },
+            { msg: 'value is not a valid email', loc: ['body', 'email'] },
+          ],
+        }),
+      text: () => Promise.resolve(''),
+    }));
+    const err = await api.requestJson('/api/thing').catch((e: Error) => e);
+    expect((err as Error).message).toContain('field required');
+    expect((err as Error).message).toContain('value is not a valid email');
+  });
+
+  it('uses message field as fallback detail shape', async () => {
+    stubFetch(() => ({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: () => Promise.resolve({ message: 'Username already taken' }),
+      text: () => Promise.resolve(''),
+    }));
+    await expect(api.requestJson('/api/auth/register')).rejects.toThrow('Username already taken');
+  });
+
+  it('falls back to status text for non-JSON error bodies', async () => {
+    stubFetch(() => ({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      json: () => Promise.reject(new SyntaxError('not json')),
+      text: () => Promise.resolve('upstream error'),
+    }));
+    await expect(api.requestJson('/api/thing')).rejects.toThrow('503 Service Unavailable');
   });
 
   it('honors caller-provided headers', async () => {
@@ -112,9 +170,33 @@ describe('fetchArticleAudioUrl', () => {
   it('throws on a failed audio response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve({ ok: false, status: 404, statusText: 'Not Found' }))
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          json: () => Promise.reject(new SyntaxError('no json')),
+          text: () => Promise.resolve(''),
+        })
+      )
     );
     await expect(api.fetchArticleAudioUrl(3)).rejects.toThrow('404 Not Found');
+  });
+
+  it('includes backend detail in audio error when JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          json: () => Promise.resolve({ detail: 'Article has no audio' }),
+          text: () => Promise.resolve(''),
+        })
+      )
+    );
+    await expect(api.fetchArticleAudioUrl(3)).rejects.toThrow('Article has no audio');
   });
 });
 

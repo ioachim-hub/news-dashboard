@@ -36,16 +36,17 @@ def _insert_source(
     articles_found: int,
     articles_new: int,
     error_message: str | None = None,
+    duration_ms: int | None = None,
 ) -> None:
     with connect(db_path) as conn:
         conn.execute(
             """
             INSERT INTO ingest_run_sources(
-              run_id, source_name, articles_found, articles_new, error_message
+              run_id, source_name, articles_found, articles_new, error_message, duration_ms
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (run_id, source_name, articles_found, articles_new, error_message),
+            (run_id, source_name, articles_found, articles_new, error_message, duration_ms),
         )
 
 
@@ -147,7 +148,12 @@ def test_get_ingest_run_sources_includes_duplicate_counts(tmp_path: Path) -> Non
         finished_at="2026-06-06T10:00:03+00:00",
     )
     _insert_source(
-        db, run_id=run_id, source_name="Python Insider", articles_found=5, articles_new=2
+        db,
+        run_id=run_id,
+        source_name="Python Insider",
+        articles_found=5,
+        articles_new=2,
+        duration_ms=1200,
     )
     _insert_source(
         db,
@@ -162,5 +168,7 @@ def test_get_ingest_run_sources_includes_duplicate_counts(tmp_path: Path) -> Non
 
     assert sources is not None
     assert sources[0]["duplicates"] == 3
+    assert sources[0]["duration_ms"] == 1200
     assert sources[1]["error_message"] == "timeout"
+    assert sources[1]["duration_ms"] is None
     assert get_ingest_run_sources(999, db_path=db) is None

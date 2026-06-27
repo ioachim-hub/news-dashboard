@@ -143,7 +143,8 @@ def get_ingest_run_sources(
               source_name,
               COALESCE(articles_found, 0) AS articles_found,
               COALESCE(articles_new, 0) AS articles_new,
-              error_message
+              error_message,
+              duration_ms
             FROM ingest_run_sources
             WHERE run_id=%s
             ORDER BY id ASC

@@ -95,7 +95,8 @@ POSTGRES_SCHEMA = [
       source_name    TEXT NOT NULL,
       articles_found INTEGER,
       articles_new   INTEGER,
-      error_message  TEXT
+      error_message  TEXT,
+      duration_ms    INTEGER
     )
     """,
     """
@@ -246,6 +247,7 @@ POSTGRES_SCHEMA = [
     "ALTER TABLE briefings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
     "CREATE INDEX IF NOT EXISTS idx_briefings_user ON briefings(user_id, created_at DESC)",
     "ALTER TABLE briefings ADD COLUMN IF NOT EXISTS script JSONB",
+    "ALTER TABLE ingest_run_sources ADD COLUMN IF NOT EXISTS duration_ms INTEGER",
 ]
 
 POSTGRES_MULTIUSER_SCHEMA = [

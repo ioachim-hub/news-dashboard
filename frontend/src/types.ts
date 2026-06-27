@@ -203,6 +203,7 @@ export interface IngestRunSource {
   articles_new: number;
   duplicates: number;
   error_message?: string | null;
+  duration_ms?: number | null;
 }
 
 export interface IngestRunPage {

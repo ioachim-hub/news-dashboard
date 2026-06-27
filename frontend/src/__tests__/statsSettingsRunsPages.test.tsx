@@ -250,12 +250,14 @@ describe('FeedsRunsPage', () => {
         articles_new: 3,
         duplicates: 6,
         error_message: null,
+        duration_ms: 800,
       },
     ]);
     renderPage(<FeedsRunsPage />);
     const toggle = await screen.findByRole('button', { name: /Expand run 1/ });
     fireEvent.click(toggle);
     await waitFor(() => expect(screen.getByText('Acme Feed')).toBeTruthy());
+    expect(screen.getByText('800ms')).toBeTruthy();
     expect(apiMock.fetchIngestRunSources).toHaveBeenCalledWith(1);
   });
 

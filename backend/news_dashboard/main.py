@@ -22,6 +22,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as StarletteResponse
@@ -193,6 +194,13 @@ class CreateSourceRequest(BaseModel):
 
 class SourceCleanupRequest(BaseModel):
     source_slugs: list[str]
+
+
+class OnboardingInterestsRequest(BaseModel):
+    interests: list[str]
+    enabled_source_slugs: list[str] = Field(default_factory=list)
+    disabled_source_slugs: list[str] = Field(default_factory=list)
+    completed: bool = True
 
 
 class IntervalUpdate(BaseModel):
@@ -865,6 +873,176 @@ def mark_read_via_token(article_id: int, token: Annotated[str, Query()]) -> dict
     if not article:
         raise HTTPException(status_code=404, detail="article not found")
     return {"status": "marked_read", "article": article}
+
+
+INTEREST_GROUPS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "ai",
+        "label": "AI",
+        "options": (
+            {"id": "agents", "label": "Agents"},
+            {"id": "model-releases", "label": "Model releases"},
+            {"id": "evals", "label": "Evals"},
+            {"id": "product-news", "label": "Product news"},
+        ),
+    },
+    {
+        "id": "engineering",
+        "label": "Engineering",
+        "options": (
+            {"id": "python", "label": "Python"},
+            {"id": "infra", "label": "Infrastructure"},
+            {"id": "cloud", "label": "Cloud"},
+            {"id": "security", "label": "Security"},
+        ),
+    },
+)
+
+
+def _interest_options() -> set[str]:
+    return {str(option["id"]) for group in INTEREST_GROUPS for option in group["options"]}
+
+
+def _source_recommendations(user_id: int, interests: list[str]) -> list[dict[str, Any]]:
+    from news_dashboard.ingest import sync_sources
+    from news_dashboard.sources import DEFAULT_SOURCES
+
+    selected = set(interests)
+    sync_sources()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT source_slug, enabled FROM user_sources WHERE user_id = %s",
+            (user_id,),
+        ).fetchall()
+    subscriptions = {str(row["source_slug"]): bool(row["enabled"]) for row in rows}
+
+    recommendations: list[dict[str, Any]] = []
+    for source in DEFAULT_SOURCES:
+        tags = set(source.interest_tags)
+        matched = sorted(selected & (tags | {source.category}))
+        score = float((len(selected & tags) * 100) + (25 if source.category in selected else 0))
+        score += source.priority / 100
+        recommended = bool(matched)
+        if not selected:
+            score = source.priority / 100
+            recommended = False
+        reason = (
+            f"Matches {', '.join(matched)}" if matched else f"Baseline {source.category} source"
+        )
+        recommendations.append(
+            {
+                "source_slug": source.slug,
+                "source_name": source.name,
+                "category": source.category,
+                "matched_interests": matched,
+                "reason": reason,
+                "recommended": recommended,
+                "subscribed": subscriptions.get(source.slug, False),
+                "_score": score,
+                "_priority": source.priority,
+            }
+        )
+
+    recommendations.sort(
+        key=lambda item: (
+            float(item["_score"]),
+            bool(item["subscribed"]),
+            int(item["_priority"]),
+            str(item["source_name"]),
+        ),
+        reverse=True,
+    )
+    for item in recommendations:
+        item.pop("_score")
+        item.pop("_priority")
+    return recommendations
+
+
+@api.get("/api/onboarding/interests")
+def onboarding_interests(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    _ = current_user
+    return {"groups": list(INTEREST_GROUPS)}
+
+
+@api.get("/api/onboarding/source-recommendations")
+def onboarding_source_recommendations(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    uid = int(current_user["id"])
+    init_db()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT interests FROM user_interest_profiles WHERE user_id = %s",
+            (uid,),
+        ).fetchone()
+    interests = list(row["interests"]) if row else []
+    return {"items": _source_recommendations(uid, [str(interest) for interest in interests])}
+
+
+@api.post("/api/onboarding/interests")
+def save_onboarding_interests(
+    payload: OnboardingInterestsRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.ingest import sync_sources
+
+    valid_interests = _interest_options()
+    interests = list(dict.fromkeys(payload.interests))
+    invalid = [interest for interest in interests if interest not in valid_interests]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"unknown interests: {', '.join(invalid)}")
+
+    uid = int(current_user["id"])
+    requested = list(dict.fromkeys(payload.enabled_source_slugs + payload.disabled_source_slugs))
+    sync_sources()
+    with connect() as conn:
+        if requested:
+            rows = conn.execute(
+                "SELECT slug FROM sources WHERE owner_user_id IS NULL AND slug = ANY(%s)",
+                (requested,),
+            ).fetchall()
+            allowed = {str(row["slug"]) for row in rows}
+            missing = [slug for slug in requested if slug not in allowed]
+            if missing:
+                detail = f"unknown global sources: {', '.join(missing)}"
+                raise HTTPException(status_code=404, detail=detail)
+
+        conn.execute(
+            """
+            INSERT INTO user_interest_profiles(user_id, interests, completed_at, updated_at)
+            VALUES (%s, %s, CASE WHEN %s THEN NOW() ELSE NULL END, NOW())
+            ON CONFLICT(user_id) DO UPDATE SET
+              interests = excluded.interests,
+              completed_at = excluded.completed_at,
+              updated_at = NOW()
+            """,
+            (uid, Jsonb(interests), payload.completed),
+        )
+        for slug in payload.enabled_source_slugs:
+            conn.execute(
+                """
+                INSERT INTO user_sources(user_id, source_slug, enabled)
+                VALUES (%s, %s, TRUE)
+                ON CONFLICT(user_id, source_slug) DO UPDATE SET enabled = TRUE
+                """,
+                (uid, slug),
+            )
+        for slug in payload.disabled_source_slugs:
+            conn.execute(
+                """
+                INSERT INTO user_sources(user_id, source_slug, enabled)
+                VALUES (%s, %s, FALSE)
+                ON CONFLICT(user_id, source_slug) DO UPDATE SET enabled = FALSE
+                """,
+                (uid, slug),
+            )
+
+    return {
+        "interests": interests,
+        "items": _source_recommendations(uid, interests),
+    }
 
 
 @api.get("/api/sources")

@@ -279,6 +279,14 @@ POSTGRES_MULTIUSER_SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_user_sources_user ON user_sources(user_id, enabled)",
     """
+    CREATE TABLE IF NOT EXISTS user_interest_profiles (
+      user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      interests    JSONB NOT NULL DEFAULT '[]'::jsonb,
+      completed_at TIMESTAMPTZ,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS user_article_state (
       user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       article_id  BIGINT  NOT NULL REFERENCES articles(id) ON DELETE CASCADE,

@@ -440,7 +440,7 @@ def test_health_details_requires_admin(tmp_db: str) -> None:
     assert resp.status_code in (401, 403)
 
 
-def test_ensure_keycloak_user_provisions_default_sources(
+def test_ensure_keycloak_user_does_not_provision_default_sources(
     tmp_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Keycloak auth enabled to run ensure_keycloak_user
@@ -454,20 +454,19 @@ def test_ensure_keycloak_user_provisions_default_sources(
     )
     assert user["username"] == "newkeycloakuser"
 
-    # Verify that the user is subscribed to all sources in the sources table.
+    # Verify that the catalog is synced but no global subscriptions are enabled
+    # until the user completes onboarding.
     with connect() as conn:
-        # Get count of default sources
         default_sources_count = conn.execute(
             "SELECT COUNT(*) AS count FROM sources WHERE owner_user_id IS NULL"
         ).fetchone()["count"]
-        # Get count of user subscriptions
         user_subs_count = conn.execute(
             "SELECT COUNT(*) AS count FROM user_sources WHERE user_id = %s AND enabled IS TRUE",
             (user["id"],),
         ).fetchone()["count"]
 
         assert default_sources_count > 0
-        assert user_subs_count == default_sources_count
+        assert user_subs_count == 0
 
 
 def test_keycloak_registration_url(monkeypatch: pytest.MonkeyPatch) -> None:

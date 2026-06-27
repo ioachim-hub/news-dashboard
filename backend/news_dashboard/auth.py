@@ -379,17 +379,8 @@ def keycloak_token_request_data(code: str) -> dict[str, str]:
 def subscribe_user_to_default_sources(user_id: int) -> None:
     from news_dashboard.ingest import sync_sources
 
+    _ = user_id
     sync_sources()
-    with connect() as conn:
-        rows = conn.execute("SELECT slug FROM sources WHERE owner_user_id IS NULL").fetchall()
-        for r in rows:
-            slug = row_to_dict(r)["slug"]
-            conn.execute(
-                "INSERT INTO user_sources(user_id, source_slug, enabled) "
-                "VALUES (%s, %s, TRUE) "
-                "ON CONFLICT(user_id, source_slug) DO NOTHING",
-                (user_id, slug),
-            )
 
 
 def ensure_keycloak_user(info: dict[str, Any]) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 FROM node:26-bookworm-slim AS frontend
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
 COPY public ./public
 COPY frontend ./frontend

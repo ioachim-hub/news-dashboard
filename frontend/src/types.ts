@@ -406,3 +406,31 @@ export interface TopicCluster {
 export interface TopicMapResponse {
   clusters: TopicCluster[];
 }
+
+export interface OnboardingInterest {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface OnboardingSourceRecommendation {
+  slug: string;
+  name: string;
+  category: string;
+  kind: string;
+  url: string;
+  matched_interests: string[];
+  reason: string;
+  recommended: boolean;
+  enabled: number;
+  priority: number;
+}
+
+export interface OnboardingStatus {
+  completed: boolean;
+}
+
+export interface SaveOnboardingProfileRequest {
+  interest_ids: string[];
+  enabled_slugs: string[];
+}

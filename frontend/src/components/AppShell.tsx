@@ -6,7 +6,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/co
 import { CommandPalette } from './CommandPalette';
 import { ShortcutOverlay } from './ShortcutOverlay';
 import { WhatsNewDialog } from './WhatsNewDialog';
+import { OnboardingWizard } from './OnboardingWizard';
 import { useWhatsNew } from '@/hooks/useWhatsNew';
+import { useOnboardingWizard } from '@/hooks/useOnboardingWizard';
 import { cn } from '@/lib/utils';
 import { fetchSummary, fetchSharesUnreadCount, logoutUser } from '@/api';
 import { startAnalytics, stopAnalytics, trackRoute } from '@/lib/analytics';
@@ -134,6 +136,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const whatsNew = useWhatsNew();
+  const onboarding = useOnboardingWizard();
 
   async function handleLogout() {
     await logoutUser();
@@ -314,6 +317,7 @@ export function AppShell() {
       />
       <ShortcutOverlay open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <WhatsNewDialog state={whatsNew} />
+      <OnboardingWizard open={onboarding.open} onClose={onboarding.skip} />
     </div>
   );
 }

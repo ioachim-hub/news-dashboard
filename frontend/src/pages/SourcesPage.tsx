@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, AlertTriangle, AlertCircle, Sparkles, Trash2 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Sparkles, Trash2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,7 @@ import {
 } from '@/api';
 import { relativeTime } from '@/lib/format';
 import type { Source, SourceCleanupSuggestion } from '@/types';
+import { OnboardingWizard } from '@/components/OnboardingWizard';
 
 type HealthState = 'ok' | 'stale' | 'error';
 
@@ -61,6 +63,7 @@ function formatSuggestionMeta(suggestion: SourceCleanupSuggestion): string {
 }
 
 export function SourcesPage() {
+  const [wizardOpen, setWizardOpen] = useState(false);
   const qc = useQueryClient();
   const { data: sources = [], isLoading } = useQuery({
     queryKey: [SOURCES_KEY],
@@ -128,6 +131,20 @@ export function SourcesPage() {
 
   return (
     <div>
+      <section className="border-b border-border px-4 py-3 md:px-5 flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">Manage your feed subscriptions</span>
+        <Button size="sm" variant="outline" onClick={() => setWizardOpen(true)}>
+          <Wand2 className="size-4" />
+          Personalize
+        </Button>
+      </section>
+      <OnboardingWizard
+        open={wizardOpen}
+        onClose={() => {
+          setWizardOpen(false);
+          void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
+        }}
+      />
       {cleanupSuggestions.length > 0 && (
         <section className="border-b border-border bg-muted/25 px-4 py-4 md:px-5">
           <div className="flex flex-col gap-3">

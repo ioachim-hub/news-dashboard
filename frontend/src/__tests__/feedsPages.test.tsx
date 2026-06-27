@@ -19,6 +19,10 @@ const apiMock = vi.hoisted(() => ({
   pauseScheduler: vi.fn(),
   resumeScheduler: vi.fn(),
   ingestNow: vi.fn(),
+  fetchOnboardingInterests: vi.fn().mockResolvedValue([]),
+  fetchOnboardingSourceRecommendations: vi.fn().mockResolvedValue([]),
+  fetchOnboardingStatus: vi.fn().mockResolvedValue({ completed: true }),
+  saveOnboardingInterests: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/api', () => apiMock);
 vi.mock('../api', () => apiMock);

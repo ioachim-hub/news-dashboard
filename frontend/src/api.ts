@@ -33,6 +33,26 @@ import type {
   User,
 } from './types';
 
+async function readErrorMessage(response: Response): Promise<string> {
+  try {
+    const body: unknown = await (response.json() as Promise<unknown>);
+    if (body && typeof body === 'object') {
+      const { detail, message } = body as Record<string, unknown>;
+      if (typeof detail === 'string' && detail) return detail;
+      if (Array.isArray(detail) && detail.length > 0) {
+        const msgs = detail
+          .map((d) => (d && typeof d === 'object' ? (d as Record<string, unknown>).msg : null))
+          .filter((m): m is string => typeof m === 'string');
+        if (msgs.length > 0) return msgs.join('; ');
+      }
+      if (typeof message === 'string' && message) return message;
+    }
+  } catch {
+    // non-JSON body — fall through
+  }
+  return `${response.status} ${response.statusText}`;
+}
+
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -40,7 +60,7 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
     ...init,
   });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    throw new Error(await readErrorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -81,7 +101,7 @@ export async function fetchArticleAudioUrl(id: number | string): Promise<string>
     credentials: 'same-origin',
   });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    throw new Error(await readErrorMessage(response));
   }
   const blob = await response.blob();
   return URL.createObjectURL(blob);

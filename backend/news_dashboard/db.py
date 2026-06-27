@@ -461,6 +461,8 @@ POSTGRES_MULTIUSER_SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_nudge_dismissals_user"
     " ON user_nudge_dismissals(user_id, cooldown_until)",
+    "ALTER TABLE user_quizzes ADD COLUMN IF NOT EXISTS submitted_answers JSONB",
+    "ALTER TABLE user_quizzes ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ",
 ]
 
 

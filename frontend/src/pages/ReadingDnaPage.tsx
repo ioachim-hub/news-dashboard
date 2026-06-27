@@ -236,7 +236,12 @@ function LearningCenter() {
       .catch(() => setGoals([]))
       .finally(() => setLoadingGoals(false));
     fetchLatestQuiz()
-      .then(setQuiz)
+      .then((q) => {
+        setQuiz(q);
+        if (q?.completed_result) {
+          setResult(q.completed_result);
+        }
+      })
       .catch(() => setQuiz(null))
       .finally(() => setLoadingQuiz(false));
   }, []);

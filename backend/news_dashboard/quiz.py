@@ -290,13 +290,21 @@ def get_latest_quiz(
     init_db(db_path, database_url=database_url)
     with connect(db_path, database_url=database_url) as conn:
         row = conn.execute(
-            "SELECT id, user_id, created_at, questions, score"
+            "SELECT id, user_id, created_at, questions, score, submitted_answers, submitted_at"
             " FROM user_quizzes WHERE user_id = %s ORDER BY created_at DESC LIMIT 1",
             (user_id,),
         ).fetchone()
     if not row:
         return None
-    return dict(row)
+    quiz = dict(row)
+    if quiz.get("submitted_at") and quiz.get("submitted_answers") and quiz.get("score") is not None:
+        quiz["completed_result"] = {
+            "quiz_id": quiz["id"],
+            "score": quiz["score"],
+            "total": len(quiz["submitted_answers"]),
+            "questions": quiz["submitted_answers"],
+        }
+    return quiz
 
 
 def submit_quiz(
@@ -325,17 +333,19 @@ def submit_quiz(
         )
         score = correct
 
+        submitted_answers = [
+            {**q, "your_answer": answers[i] if i < len(answers) else None}
+            for i, q in enumerate(questions)
+        ]
         conn.execute(
-            "UPDATE user_quizzes SET score = %s WHERE id = %s AND user_id = %s",
-            (score, quiz_id, user_id),
+            "UPDATE user_quizzes SET score = %s, submitted_answers = %s::jsonb,"
+            " submitted_at = NOW() WHERE id = %s AND user_id = %s",
+            (score, json.dumps(submitted_answers), quiz_id, user_id),
         )
 
     return {
         "quiz_id": quiz_id,
         "score": score,
         "total": len(questions),
-        "questions": [
-            {**q, "your_answer": answers[i] if i < len(answers) else None}
-            for i, q in enumerate(questions)
-        ],
+        "questions": submitted_answers,
     }

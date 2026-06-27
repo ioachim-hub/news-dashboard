@@ -390,6 +390,9 @@ export interface Quiz {
   created_at: string;
   questions: QuizQuestion[];
   score: number | null;
+  submitted_at?: string | null;
+  submitted_answers?: QuizQuestion[] | null;
+  completed_result?: QuizResult | null;
 }
 
 export interface QuizResult {

@@ -300,3 +300,79 @@ def test_submit_quiz_not_found(tmp_path: Path) -> None:
     _seed(db_path)
     with pytest.raises(ValueError, match="not found"):
         submit_quiz(9999, 1, [0, 0, 0], db_path=db_path)
+
+
+def _generate_quiz_with_mock(user_id: int, db_path: Path) -> dict[str, Any]:
+    import json
+
+    mock_response = MagicMock()
+    mock_response.choices[0].message.content = json.dumps(_MOCK_QUESTIONS)
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}),
+        patch("news_dashboard.ai_client.get_openai_client") as mock_client_factory,
+        patch("news_dashboard.ai_client.chat_create", return_value=mock_response),
+    ):
+        mock_client_factory.return_value = MagicMock()
+        quiz = generate_weekly_quiz(user_id, db_path=db_path)
+    assert quiz is not None
+    return quiz
+
+
+def test_submit_quiz_persists_submitted_answers(tmp_path: Path) -> None:
+    db_path = tmp_path / "q.db"
+    user_id, article_id = _seed(db_path)
+    _seed_done_article(db_path, user_id, article_id)
+    quiz = _generate_quiz_with_mock(user_id, db_path)
+
+    answers = [q["correct_index"] for q in _MOCK_QUESTIONS]
+    submit_quiz(quiz["id"], user_id, answers, db_path=db_path)
+
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT submitted_answers, submitted_at FROM user_quizzes WHERE id = %s",
+            (quiz["id"],),
+        ).fetchone()
+
+    assert row is not None
+    assert row["submitted_at"] is not None
+    assert row["submitted_answers"] is not None
+    assert len(row["submitted_answers"]) == 3
+    # Each question should have your_answer populated
+    for i, q in enumerate(row["submitted_answers"]):
+        assert q["your_answer"] == answers[i]
+
+
+def test_get_latest_quiz_returns_completed_result_after_submit(tmp_path: Path) -> None:
+    db_path = tmp_path / "q.db"
+    user_id, article_id = _seed(db_path)
+    _seed_done_article(db_path, user_id, article_id)
+    quiz = _generate_quiz_with_mock(user_id, db_path)
+
+    # Before submit: no completed_result
+    latest = get_latest_quiz(user_id, db_path=db_path)
+    assert latest is not None
+    assert latest.get("completed_result") is None
+
+    answers = [q["correct_index"] for q in _MOCK_QUESTIONS]
+    submit_quiz(quiz["id"], user_id, answers, db_path=db_path)
+
+    # After submit: completed_result is populated
+    latest = get_latest_quiz(user_id, db_path=db_path)
+    assert latest is not None
+    cr = latest.get("completed_result")
+    assert cr is not None
+    assert cr["quiz_id"] == quiz["id"]
+    assert cr["score"] == 3
+    assert cr["total"] == 3
+    assert len(cr["questions"]) == 3
+
+
+def test_get_latest_quiz_unanswered_has_no_completed_result(tmp_path: Path) -> None:
+    db_path = tmp_path / "q.db"
+    user_id, article_id = _seed(db_path)
+    _seed_done_article(db_path, user_id, article_id)
+    _generate_quiz_with_mock(user_id, db_path)
+
+    latest = get_latest_quiz(user_id, db_path=db_path)
+    assert latest is not None
+    assert latest.get("completed_result") is None

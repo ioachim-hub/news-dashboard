@@ -12,6 +12,9 @@ import type {
   IngestedVsHandledPoint,
   NotificationSettings,
   NotificationSettingsUpdate,
+  OnboardingInterest,
+  OnboardingSourceRecommendation,
+  OnboardingStatus,
   PushSubscribeRequest,
   Quiz,
   QuizResult,
@@ -19,6 +22,7 @@ import type {
   ReadingGoal,
   RecommendationPreferences,
   ReceivedShare,
+  SaveOnboardingProfileRequest,
   ShareableUser,
   Source,
   SourceCleanupSuggestion,
@@ -533,4 +537,30 @@ export async function markShareRead(shareId: number): Promise<void> {
 
 export async function fetchTopicMap(): Promise<TopicMapResponse> {
   return requestJson<TopicMapResponse>('/api/articles/topic-map');
+}
+
+export async function fetchOnboardingStatus(): Promise<OnboardingStatus> {
+  return requestJson<OnboardingStatus>('/api/onboarding/status');
+}
+
+export async function fetchOnboardingInterests(): Promise<OnboardingInterest[]> {
+  return requestJson<OnboardingInterest[]>('/api/onboarding/interests');
+}
+
+export async function fetchOnboardingSourceRecommendations(
+  interestIds: string[]
+): Promise<OnboardingSourceRecommendation[]> {
+  return requestJson<OnboardingSourceRecommendation[]>('/api/onboarding/recommendations', {
+    method: 'POST',
+    body: JSON.stringify({ interest_ids: interestIds }),
+  });
+}
+
+export async function saveOnboardingInterests(
+  payload: SaveOnboardingProfileRequest
+): Promise<void> {
+  await requestJson('/api/onboarding/profile', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }

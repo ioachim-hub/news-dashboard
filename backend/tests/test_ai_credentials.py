@@ -57,10 +57,10 @@ def test_answer_uses_openai_api_key_and_default_model(
             self.chat = FakeChat()
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_ANSWER_MODEL", raising=False)
-    monkeypatch.delenv("OPENAI_ANSWER_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_ANSWER_API_KEY", raising=False)
     import sys
     from types import SimpleNamespace
 
@@ -77,35 +77,33 @@ def test_answer_uses_openai_api_key_and_default_model(
 def test_embeddings_ai_config_raises_when_no_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    with pytest.raises(MissingAICredentialsError, match="OPENAI_EMBEDDINGS_API_KEY"):
+    with pytest.raises(MissingAICredentialsError, match="FREE_LLM_API_KEY"):
         _embeddings_ai_config()
 
 
-def test_embeddings_ai_config_uses_embeddings_specific_key(
+def test_embeddings_ai_config_uses_free_llm_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("OPENAI_EMBEDDINGS_API_KEY", "embed-key")
+    monkeypatch.setenv("FREE_LLM_API_KEY", "free-llm-key")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     api_key, base_url, _model = _embeddings_ai_config()
 
-    assert api_key == "embed-key"
+    assert api_key == "free-llm-key"
     assert base_url is None
 
 
 def test_embeddings_ai_config_falls_back_to_shared_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "shared-key")
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     api_key, base_url, _model = _embeddings_ai_config()
@@ -114,12 +112,11 @@ def test_embeddings_ai_config_falls_back_to_shared_api_key(
     assert base_url is None
 
 
-def test_embeddings_ai_config_uses_embeddings_specific_base_url(
+def test_embeddings_ai_config_uses_free_llm_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "key")
-    monkeypatch.setenv("OPENAI_EMBEDDINGS_BASE_URL", "http://gateway:9130/v1")
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://gateway:9130/v1")
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     _, base_url, _model = _embeddings_ai_config()
@@ -131,8 +128,7 @@ def test_embeddings_ai_config_falls_back_to_shared_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "key")
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway:9130/v1")
 
     _, base_url, _model = _embeddings_ai_config()
@@ -140,30 +136,16 @@ def test_embeddings_ai_config_falls_back_to_shared_base_url(
     assert base_url == "http://shared-gateway:9130/v1"
 
 
-def test_embeddings_ai_config_specific_base_url_takes_precedence_over_shared(
+def test_embeddings_ai_config_free_llm_base_url_takes_precedence_over_shared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "key")
-    monkeypatch.setenv("OPENAI_EMBEDDINGS_BASE_URL", "http://embed-gateway/v1")
-    monkeypatch.setenv("OPENAI_BRIEFING_BASE_URL", "http://briefing-gateway/v1")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://free-gateway/v1")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway/v1")
 
     _, base_url, _model = _embeddings_ai_config()
 
-    assert base_url == "http://embed-gateway/v1"
-
-
-def test_embeddings_ai_config_falls_back_to_briefing_base_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "key")
-    monkeypatch.delenv("OPENAI_EMBEDDINGS_BASE_URL", raising=False)
-    monkeypatch.setenv("OPENAI_BRIEFING_BASE_URL", "http://briefing-gateway/v1")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gateway/v1")
-
-    _, base_url, _model = _embeddings_ai_config()
-
-    assert base_url == "http://briefing-gateway/v1"
+    assert base_url == "http://free-gateway/v1"
 
 
 def test_embeddings_ai_config_uses_model_override(
@@ -192,8 +174,8 @@ def test_answer_uses_no_base_url_when_gateway_not_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
-    monkeypatch.delenv("OPENAI_ANSWER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_ANSWER_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     patch_target = "news_dashboard.ai_client.get_openai_client"
@@ -204,8 +186,8 @@ def test_answer_uses_no_base_url_when_gateway_not_configured(
 
 def test_answer_uses_shared_base_url_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
-    monkeypatch.delenv("OPENAI_ANSWER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_ANSWER_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://gateway:9130/v1")
 
     patch_target = "news_dashboard.ai_client.get_openai_client"
@@ -214,25 +196,27 @@ def test_answer_uses_shared_base_url_when_set(monkeypatch: pytest.MonkeyPatch) -
     mock_factory.assert_called_once_with(api_key="sk-default", base_url="http://gateway:9130/v1")
 
 
-def test_answer_feature_base_url_overrides_shared(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
-    monkeypatch.delenv("OPENAI_ANSWER_API_KEY", raising=False)
-    monkeypatch.setenv("OPENAI_ANSWER_BASE_URL", "http://answer-gw:9130/v1")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://shared-gw:9130/v1")
-
-    patch_target = "news_dashboard.ai_client.get_openai_client"
-    with patch(patch_target, return_value=_make_fake_client()) as mock_factory:
-        _answer("sys", "usr")
-    mock_factory.assert_called_once_with(api_key="sk-default", base_url="http://answer-gw:9130/v1")
-
-
-def test_answer_feature_api_key_overrides_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-default")
-    monkeypatch.setenv("OPENAI_ANSWER_API_KEY", "sk-answer-specific")
-    monkeypatch.delenv("OPENAI_ANSWER_BASE_URL", raising=False)
+def test_answer_uses_free_llm_key_and_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FREE_LLM_API_KEY", "sk-free-llm")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://free-gw:9130/v1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
 
     patch_target = "news_dashboard.ai_client.get_openai_client"
     with patch(patch_target, return_value=_make_fake_client()) as mock_factory:
         _answer("sys", "usr")
-    mock_factory.assert_called_once_with(api_key="sk-answer-specific", base_url=None)
+    mock_factory.assert_called_once_with(api_key="sk-free-llm", base_url="http://free-gw:9130/v1")
+
+
+def test_answer_free_llm_key_takes_precedence_over_openai_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FREE_LLM_API_KEY", "sk-free-llm")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+
+    patch_target = "news_dashboard.ai_client.get_openai_client"
+    with patch(patch_target, return_value=_make_fake_client()) as mock_factory:
+        _answer("sys", "usr")
+    mock_factory.assert_called_once_with(api_key="sk-free-llm", base_url=None)

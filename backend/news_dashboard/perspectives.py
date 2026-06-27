@@ -71,17 +71,13 @@ def _build_text(article: dict[str, Any], related: list[dict[str, Any]]) -> str:
 
 
 def _perspectives_ai_config() -> tuple[str, str | None, str]:
-    """Resolve (api_key, base_url, model) for perspective analysis.
+    """Resolve (api_key, base_url, model) for perspective analysis via the free LLM gateway."""
+    from news_dashboard.ai_client import free_llm_config
 
-    Can target any OpenAI-compatible endpoint via
-    ``OPENAI_PERSPECTIVES_BASE_URL`` / ``OPENAI_PERSPECTIVES_API_KEY``, falling
-    back to the shared ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``.
-    """
-    api_key = os.getenv("OPENAI_PERSPECTIVES_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key, base_url = free_llm_config()
     if not api_key:
-        msg = "OPENAI_API_KEY is not configured"
+        msg = "FREE_LLM_API_KEY (or OPENAI_API_KEY) is not configured"
         raise PerspectivesNotConfiguredError(msg)
-    base_url = os.getenv("OPENAI_PERSPECTIVES_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_PERSPECTIVES_MODEL", DEFAULT_PERSPECTIVES_MODEL)
     return api_key, base_url, model
 

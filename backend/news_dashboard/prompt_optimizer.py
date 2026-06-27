@@ -137,23 +137,15 @@ def _optimizer_ai_config() -> tuple[str, str | None]:
     and then the shared ``OPENAI_BASE_URL`` / ``OPENAI_API_KEY``. The base URL
     is optional; when unset the official OpenAI endpoint is used.
     """
-    api_key = (
-        os.getenv("OPENAI_OPTIMIZER_API_KEY")
-        or os.getenv("OPENAI_BRIEFING_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-    )
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
         msg = (
-            "Prompt optimization requires an API key. Set OPENAI_OPTIMIZER_API_KEY "
+            "Prompt optimization requires an API key. Set FREE_LLM_API_KEY "
             "(or OPENAI_API_KEY) in the app environment."
         )
         raise PromptOptimizerError(msg)
-    base_url = (
-        os.getenv("OPENAI_OPTIMIZER_BASE_URL")
-        or os.getenv("OPENAI_BRIEFING_BASE_URL")
-        or os.getenv("OPENAI_BASE_URL")
-        or None
-    )
     return api_key, base_url
 
 

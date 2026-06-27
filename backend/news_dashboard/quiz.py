@@ -112,11 +112,12 @@ def goal_alignment_adjustment(
 
 
 def _quiz_ai_config() -> tuple[str, str | None, str]:
-    api_key = os.getenv("OPENAI_QUIZ_API_KEY") or os.getenv("OPENAI_API_KEY")
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
-        msg = "OPENAI_API_KEY is not configured"
+        msg = "FREE_LLM_API_KEY (or OPENAI_API_KEY) is not configured"
         raise RuntimeError(msg)
-    base_url = os.getenv("OPENAI_QUIZ_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
     model = os.getenv("OPENAI_QUIZ_MODEL", DEFAULT_QUIZ_MODEL)
     return api_key, base_url, model
 

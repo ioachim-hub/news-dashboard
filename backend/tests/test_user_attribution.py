@@ -97,7 +97,7 @@ def test_embed_passes_system_user_id_to_trace_params() -> None:
     mock_tp.assert_called_once_with("article-embedding", tags=["embedding"], user_id="system")
 
 
-def test_embed_uses_briefing_gateway_base_url_when_configured() -> None:
+def test_embed_uses_free_llm_gateway_base_url_when_configured() -> None:
     from news_dashboard.embeddings import _embed
 
     mock_response = MagicMock()
@@ -110,7 +110,7 @@ def test_embed_uses_briefing_gateway_base_url_when_configured() -> None:
             "os.environ",
             {
                 "OPENAI_API_KEY": "sk-test",
-                "OPENAI_BRIEFING_BASE_URL": "http://127.0.0.1:9130/v1",
+                "FREE_LLM_BASE_URL": "http://127.0.0.1:9130/v1",
             },
             clear=True,
         ),
@@ -247,7 +247,7 @@ def test_ai_extract_body_passes_none_user_id_by_default() -> None:
     assert mock_cc.call_args.kwargs["user_id"] is None
 
 
-def test_ai_extract_body_uses_briefing_gateway_config() -> None:
+def test_ai_extract_body_uses_free_llm_gateway_config() -> None:
     from news_dashboard.body_fetch import _ai_extract_body
 
     mock_cc = MagicMock(return_value=_mock_completion("Article body text."))
@@ -258,9 +258,8 @@ def test_ai_extract_body_uses_briefing_gateway_config() -> None:
         patch.dict(
             "os.environ",
             {
-                "OPENAI_API_KEY": "sk-openai",
-                "OPENAI_BRIEFING_API_KEY": "sk-gateway",
-                "OPENAI_BRIEFING_BASE_URL": "http://gateway:9130/v1",
+                "FREE_LLM_API_KEY": "sk-gateway",
+                "FREE_LLM_BASE_URL": "http://gateway:9130/v1",
                 "OPENAI_BRIEFING_MODEL": "gateway-chat-model",
             },
         ),

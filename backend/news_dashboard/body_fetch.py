@@ -28,23 +28,19 @@ _AI_PROMPT = (
 )
 
 
-def _body_ai_config() -> tuple[str, str | None, str]:
-    """Resolve (api_key, base_url, model) for AI body extraction."""
-    api_key = os.getenv("OPENAI_BRIEFING_API_KEY") or os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BRIEFING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None
-    model = os.getenv("OPENAI_BRIEFING_MODEL", _AI_MODEL)
-    return api_key or "", base_url, model
-
-
 def _ai_extract_body(url: str, *, user_id: int | None = None) -> tuple[str, str]:
-    """Fallback: fetch raw HTML via httpx and extract body text via AI.
+    """Fallback: fetch raw HTML via httpx and extract body text via the free LLM gateway.
 
-    Returns (text, 'ok') on success or ('', 'error') if OPENAI_API_KEY is
-    absent, the HTTP fetch fails, or the AI call fails.
+    Returns (text, 'ok') on success or ('', 'error') if no API key is
+    configured, the HTTP fetch fails, or the AI call fails.
     """
-    api_key, base_url, model = _body_ai_config()
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key:
         return "", "error"
+
+    model = os.getenv("OPENAI_BRIEFING_MODEL", _AI_MODEL)
 
     try:
         import httpx  # lazy import — optional at module load time
@@ -327,15 +323,17 @@ def get_article(
 
 
 def translate_body(body: str, from_lang: str) -> str:
-    """Translate the body text to English using OpenAI GPT models."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Translate the body text to English using the free LLM gateway."""
+    from news_dashboard.ai_client import free_llm_config
+
+    api_key, base_url = free_llm_config()
     if not api_key or not body.strip():
         return body
 
     try:
         from news_dashboard.ai_client import chat_create, get_openai_client
 
-        client = get_openai_client(api_key=api_key)
+        client = get_openai_client(api_key=api_key, base_url=base_url)
         prompt = (
             f"You are a translation assistant. Translate the following body text from "
             f"language code '{from_lang}' to English. Return only the translated plain text, "

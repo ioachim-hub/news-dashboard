@@ -698,8 +698,8 @@ def test_current_day_since_at_subtracts_24_hours() -> None:
 
 def test_call_openai_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_API_KEY", raising=False)
-    with pytest.raises(BriefingAINotConfiguredError, match="OPENAI_API_KEY"):
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
+    with pytest.raises(BriefingAINotConfiguredError, match="FREE_LLM_API_KEY"):
         _call_openai([], model="gpt-x")
 
 
@@ -726,8 +726,8 @@ def _patch_openai(monkeypatch: pytest.MonkeyPatch, content: str) -> type[_FakeOp
 
 def test_call_openai_uses_default_base_url_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_BASE_URL", raising=False)
-    monkeypatch.delenv("OPENAI_BRIEFING_API_KEY", raising=False)
+    monkeypatch.delenv("FREE_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("FREE_LLM_API_KEY", raising=False)
     cls = _patch_openai(monkeypatch, "{}")
     _call_openai([{"id": 1, "title": "A"}], model="gpt-x")
     assert cls.last_kwargs["api_key"] == "sk-test"
@@ -736,10 +736,10 @@ def test_call_openai_uses_default_base_url_when_unset(monkeypatch: pytest.Monkey
     assert cls.last_kwargs.get("base_url") is None
 
 
-def test_call_openai_uses_briefing_endpoint_override(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_openai_uses_free_llm_endpoint_override(monkeypatch: pytest.MonkeyPatch) -> None:
     cls = _patch_openai(monkeypatch, "{}")
-    monkeypatch.setenv("OPENAI_BRIEFING_API_KEY", "freellmapi-key")
-    monkeypatch.setenv("OPENAI_BRIEFING_BASE_URL", "http://127.0.0.1:9130/v1")
+    monkeypatch.setenv("FREE_LLM_API_KEY", "freellmapi-key")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://127.0.0.1:9130/v1")
     _call_openai([{"id": 1, "title": "A"}], model="auto")
     assert cls.last_kwargs["api_key"] == "freellmapi-key"
     assert cls.last_kwargs["base_url"] == "http://127.0.0.1:9130/v1"
@@ -772,7 +772,7 @@ def test_call_openai_wraps_upstream_error(monkeypatch: pytest.MonkeyPatch) -> No
         raise _UpstreamError(msg)
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_BRIEFING_BASE_URL", "http://192.168.0.75:9130/v1")
+    monkeypatch.setenv("FREE_LLM_BASE_URL", "http://192.168.0.75:9130/v1")
     cls = type(
         "Patched",
         (_FakeOpenAI,),

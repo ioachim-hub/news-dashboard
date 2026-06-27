@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -17,7 +18,12 @@ from news_dashboard.push import (
     send_push_for_user,
 )
 
-client = TestClient(app, raise_server_exceptions=True)
+
+@pytest.fixture
+def client() -> Generator[TestClient]:
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
 
 # ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -284,7 +290,9 @@ def test_send_push_for_user_calls_send_for_each_sub(
 # ── API endpoints ──────────────────────────────────────────────────────────────
 
 
-def test_get_notification_settings_returns_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_notification_settings_returns_defaults(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("VAPID_PUBLIC_KEY", "BExampleKey==")
 
     fake_row: dict[str, Any] = {"briefing_time": "09:00", "briefing_push_enabled": False}
@@ -302,7 +310,7 @@ def test_get_notification_settings_returns_defaults(monkeypatch: pytest.MonkeyPa
     assert data["vapid_public_key"] == "BExampleKey=="
 
 
-def test_put_notification_settings_valid_time() -> None:
+def test_put_notification_settings_valid_time(client: TestClient) -> None:
     fake_row: dict[str, Any] = {"briefing_time": "08:30", "briefing_push_enabled": True}
 
     with patch("news_dashboard.main.connect") as mock_connect:
@@ -320,12 +328,12 @@ def test_put_notification_settings_valid_time() -> None:
     assert data["push_enabled"] is True
 
 
-def test_put_notification_settings_invalid_time() -> None:
+def test_put_notification_settings_invalid_time(client: TestClient) -> None:
     resp = client.put("/api/settings/notifications", json={"briefing_time": "25:00"})
     assert resp.status_code == 422
 
 
-def test_push_subscribe_endpoint() -> None:
+def test_push_subscribe_endpoint(client: TestClient) -> None:
     with patch("news_dashboard.push.save_push_subscription") as mock_save:
         resp = client.post(
             "/api/notifications/subscribe",
@@ -336,7 +344,7 @@ def test_push_subscribe_endpoint() -> None:
     mock_save.assert_called_once_with(1, "https://ep.example.com", "abc", "xyz")
 
 
-def test_push_unsubscribe_endpoint() -> None:
+def test_push_unsubscribe_endpoint(client: TestClient) -> None:
     with patch("news_dashboard.push.delete_push_subscriptions") as mock_del:
         resp = client.delete("/api/notifications/subscribe")
     assert resp.status_code == 200

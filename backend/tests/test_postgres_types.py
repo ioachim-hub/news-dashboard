@@ -113,23 +113,27 @@ def _add_article(pg_url: str, *, source_slug: str, url_suffix: str = "1") -> int
 
 
 def _api_client(uid: int, username: str = "user") -> Any:
+    from contextlib import contextmanager
+
     from fastapi.testclient import TestClient
 
     from news_dashboard.auth import require_admin, require_auth
     from news_dashboard.main import app
 
     fake = {"id": uid, "username": username, "email": None, "is_admin": False}
-    app.dependency_overrides[require_auth] = lambda: fake
-    app.dependency_overrides[require_admin] = lambda: fake
-    return TestClient(app, raise_server_exceptions=True)
 
+    @contextmanager
+    def _ctx() -> Generator[TestClient]:
+        app.dependency_overrides[require_auth] = lambda: fake
+        app.dependency_overrides[require_admin] = lambda: fake
+        try:
+            with TestClient(app, raise_server_exceptions=True) as c:
+                yield c
+        finally:
+            app.dependency_overrides.pop(require_auth, None)
+            app.dependency_overrides.pop(require_admin, None)
 
-def _clear_auth_overrides() -> None:
-    from news_dashboard.auth import require_admin, require_auth
-    from news_dashboard.main import app
-
-    app.dependency_overrides.pop(require_auth, None)
-    app.dependency_overrides.pop(require_admin, None)
+    return _ctx()
 
 
 # ── starred BOOLEAN column ────────────────────────────────────────────────────
@@ -331,16 +335,13 @@ def test_pg_sources_listing_subscribed_by_default(pg_env: str) -> None:
     _add_global_source(pg_url, "pg-src-list")
     uid = _make_user(pg_url, "list-user")
 
-    client = _api_client(uid, "list-user")
-    try:
+    with _api_client(uid, "list-user") as client:
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         items = resp.json()["items"]
         match = next((i for i in items if i["slug"] == "pg-src-list"), None)
         assert match is not None
         assert match["subscribed"] is True
-    finally:
-        _clear_auth_overrides()
 
 
 def test_pg_sources_listing_after_unsubscribe(pg_env: str) -> None:
@@ -358,15 +359,12 @@ def test_pg_sources_listing_after_unsubscribe(pg_env: str) -> None:
         )
         conn.commit()
 
-    client = _api_client(uid, "unsub-list-user")
-    try:
+    with _api_client(uid, "unsub-list-user") as client:
         resp = client.get("/api/sources")
         assert resp.status_code == 200
         match = next((i for i in resp.json()["items"] if i["slug"] == "pg-src-unsub-list"), None)
         assert match is not None
         assert match["subscribed"] is False
-    finally:
-        _clear_auth_overrides()
 
 
 # ── PATCH /api/sources/{slug}/enabled writes boolean ─────────────────────────
@@ -380,8 +378,7 @@ def test_pg_api_toggle_subscription_writes_boolean(pg_env: str) -> None:
     _add_global_source(pg_url, "pg-src-toggle")
     uid = _make_user(pg_url, "toggle-user")
 
-    client = _api_client(uid, "toggle-user")
-    try:
+    with _api_client(uid, "toggle-user") as client:
         resp = client.patch("/api/sources/pg-src-toggle/enabled", json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["subscribed"] is False
@@ -389,8 +386,6 @@ def test_pg_api_toggle_subscription_writes_boolean(pg_env: str) -> None:
         resp2 = client.patch("/api/sources/pg-src-toggle/enabled", json={"enabled": True})
         assert resp2.status_code == 200
         assert resp2.json()["subscribed"] is True
-    finally:
-        _clear_auth_overrides()
 
     # Confirm the DB column holds a proper boolean, not an integer.
     with psycopg.connect(pg_url) as conn:

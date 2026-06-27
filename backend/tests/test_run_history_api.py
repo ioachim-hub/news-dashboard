@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from news_dashboard.db import connect, init_db
 from news_dashboard.main import app
 
-client = TestClient(app, raise_server_exceptions=True)
+
+@pytest.fixture
+def client() -> Generator[TestClient]:
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
 
 
 def _seed_db(db_path: Path | str) -> tuple[int, int]:
@@ -58,7 +64,9 @@ def _seed_db(db_path: Path | str) -> tuple[int, int]:
     return int(r1), int(r2)
 
 
-def test_list_runs_returns_paginated_response(pg_clean: str, monkeypatch: Any) -> None:
+def test_list_runs_returns_paginated_response(
+    client: TestClient, pg_clean: str, monkeypatch: Any
+) -> None:
     db = pg_clean
     monkeypatch.setenv("DATABASE_URL", db)
     _seed_db(db)
@@ -75,7 +83,7 @@ def test_list_runs_returns_paginated_response(pg_clean: str, monkeypatch: Any) -
     assert ids[0] > ids[1]
 
 
-def test_list_runs_pagination(pg_clean: str, monkeypatch: Any) -> None:
+def test_list_runs_pagination(client: TestClient, pg_clean: str, monkeypatch: Any) -> None:
     db = pg_clean
     monkeypatch.setenv("DATABASE_URL", db)
     _seed_db(db)
@@ -96,7 +104,9 @@ def test_list_runs_pagination(pg_clean: str, monkeypatch: Any) -> None:
     assert body2["items"][0]["id"] != body["items"][0]["id"]
 
 
-def test_get_run_sources_returns_breakdown(pg_clean: str, monkeypatch: Any) -> None:
+def test_get_run_sources_returns_breakdown(
+    client: TestClient, pg_clean: str, monkeypatch: Any
+) -> None:
     db = pg_clean
     monkeypatch.setenv("DATABASE_URL", db)
     r1, _ = _seed_db(db)
@@ -116,7 +126,9 @@ def test_get_run_sources_returns_breakdown(pg_clean: str, monkeypatch: Any) -> N
     assert python_insider["duration_ms"] == 1500
 
 
-def test_get_run_sources_404_for_unknown_id(pg_clean: str, monkeypatch: Any) -> None:
+def test_get_run_sources_404_for_unknown_id(
+    client: TestClient, pg_clean: str, monkeypatch: Any
+) -> None:
     db = pg_clean
     monkeypatch.setenv("DATABASE_URL", db)
     init_db(db)
@@ -125,7 +137,7 @@ def test_get_run_sources_404_for_unknown_id(pg_clean: str, monkeypatch: Any) -> 
     assert resp.status_code == 404
 
 
-def test_list_runs_empty_state(pg_clean: str, monkeypatch: Any) -> None:
+def test_list_runs_empty_state(client: TestClient, pg_clean: str, monkeypatch: Any) -> None:
     db = pg_clean
     monkeypatch.setenv("DATABASE_URL", db)
     init_db(db)

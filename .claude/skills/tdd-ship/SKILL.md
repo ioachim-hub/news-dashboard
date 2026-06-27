@@ -105,24 +105,31 @@ pytest hook can connect to PostgreSQL.
 Push only once the relevant tests and type/lint gates pass locally — CI runs the
 same gates, so green-locally is the cheapest way to a green PR.
 
-### 4. Rebase on `origin/main`, then open the PR (it must close the issue)
+### 4. Rebase on `origin/main`, open the PR, and enable auto-merge
 
 `main` may have moved while you worked, so re-sync immediately before pushing.
 Rebase (don't merge) so the branch stays linear, re-run the gates if the rebase
-pulled anything in, then push:
+pulled anything in, push, open the PR, then immediately turn on auto-merge:
 
 ```bash
 git fetch origin && git rebase origin/main
 git push -u origin HEAD
 gh pr create --fill --base main \
   --body "Closes #<issue#>\n\n<summary of the change and the test that backs it>"
+gh pr merge --squash --auto --delete-branch
 ```
 
 The `Closes #<issue#>` line is required — it links the PR to the issue and
 auto-closes it on merge. End the PR body with the standard trailer:
 `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
-### 5. Wait for CI to pass
+Always open PRs with auto-merge enabled (`--auto`). Branch protection on `main`
+holds the merge until the required checks pass, so enabling it up front lets the
+PR land the moment CI is green without a manual merge step. A repo-level workflow
+(`.github/workflows/auto-merge.yml`) also enables auto-merge on every non-draft
+PR as a backstop, but don't rely on it — set `--auto` yourself.
+
+### 5. Watch CI; auto-merge lands it when green
 
 CI (`.github/workflows/ci.yml`) runs on every PR to `main`. Watch it:
 
@@ -131,20 +138,17 @@ gh pr checks --watch
 ```
 
 If a check fails, read the logs (`gh run view <run-id> --log-failed`), fix the
-cause on the branch, push, and let CI re-run. Do not proceed until every
-required check is green.
+cause on the branch, push, and let CI re-run. With auto-merge enabled, the PR
+squash-merges and deletes its branch automatically once every required check is
+green — you don't merge by hand.
 
-### 6. Auto-merge once CI is green
+### 6. Confirm the merge completed
 
-When all checks pass, merge without pausing — squash to keep `main` linear, and
-delete the branch:
-
-```bash
-gh pr merge --squash --delete-branch
-```
-
-Then confirm the issue closed (the `Closes #` link handles it) and report the
-merged PR and issue numbers back to the user.
+Once CI is green, confirm auto-merge actually landed the PR (`gh pr view
+<pr#> --json state,mergedAt`). Then confirm the issue closed (the `Closes #`
+link handles it) and report the merged PR and issue numbers back to the user.
+Only step in with a manual `gh pr merge --squash --delete-branch` if auto-merge
+was disabled (e.g. the PR was converted to a draft).
 
 ## Reporting back
 

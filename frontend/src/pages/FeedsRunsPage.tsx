@@ -160,6 +160,7 @@ export function FeedsRunsPage() {
                                     <TableHead>Found</TableHead>
                                     <TableHead>New</TableHead>
                                     <TableHead>Duplicates</TableHead>
+                                    <TableHead>Duration</TableHead>
                                     <TableHead>Error</TableHead>
                                   </TableRow>
                                 </TableHeader>
@@ -176,6 +177,14 @@ export function FeedsRunsPage() {
                                         {source.articles_new}
                                       </TableCell>
                                       <TableCell className="text-sm">{source.duplicates}</TableCell>
+                                      <TableCell className="text-sm">
+                                        {source.duration_ms !== null &&
+                                        source.duration_ms !== undefined ? (
+                                          formatDuration(source.duration_ms)
+                                        ) : (
+                                          <span className="text-muted-foreground">—</span>
+                                        )}
+                                      </TableCell>
                                       <TableCell className="text-sm">
                                         {source.error_message ? (
                                           <span className="text-destructive">

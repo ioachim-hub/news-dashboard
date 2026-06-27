@@ -31,27 +31,27 @@ def _seed_db(db_path: Path | str) -> tuple[int, int]:
         conn.execute(
             """
             INSERT INTO ingest_run_sources(
-              run_id, source_name, articles_found, articles_new, error_message
+              run_id, source_name, articles_found, articles_new, error_message, duration_ms
             )
-            VALUES (%s, 'Python Insider', 5, 3, NULL)
+            VALUES (%s, 'Python Insider', 5, 3, NULL, 1500)
             """,
             (r1,),
         )
         conn.execute(
             """
             INSERT INTO ingest_run_sources(
-              run_id, source_name, articles_found, articles_new, error_message
+              run_id, source_name, articles_found, articles_new, error_message, duration_ms
             )
-            VALUES (%s, 'Broken Feed', 0, 0, 'timeout')
+            VALUES (%s, 'Broken Feed', 0, 0, 'timeout', NULL)
             """,
             (r1,),
         )
         conn.execute(
             """
             INSERT INTO ingest_run_sources(
-              run_id, source_name, articles_found, articles_new, error_message
+              run_id, source_name, articles_found, articles_new, error_message, duration_ms
             )
-            VALUES (%s, 'Hacker News', 10, 1, NULL)
+            VALUES (%s, 'Hacker News', 10, 1, NULL, NULL)
             """,
             (r2,),
         )
@@ -110,8 +110,10 @@ def test_get_run_sources_returns_breakdown(pg_clean: str, monkeypatch: Any) -> N
     assert names == {"Python Insider", "Broken Feed"}
     broken = next(s for s in body["items"] if s["source_name"] == "Broken Feed")
     assert broken["error_message"] == "timeout"
+    assert broken["duration_ms"] is None
     python_insider = next(s for s in body["items"] if s["source_name"] == "Python Insider")
     assert python_insider["duplicates"] == 2  # 5 found - 3 new
+    assert python_insider["duration_ms"] == 1500
 
 
 def test_get_run_sources_404_for_unknown_id(pg_clean: str, monkeypatch: Any) -> None:

@@ -711,13 +711,14 @@ def _create_ingest_run(db_path: Path | str | None, started_at: str) -> int:
 def _record_ingest_source(
     run_id: int, outcome: SourceIngestOutcome, db_path: Path | str | None
 ) -> None:
+    duration_ms = int(outcome.duration_seconds * 1000)
     with connect(db_path) as conn:
         conn.execute(
             """
             INSERT INTO ingest_run_sources(
-              run_id, source_name, articles_found, articles_new, error_message
+              run_id, source_name, articles_found, articles_new, error_message, duration_ms
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (
                 run_id,
@@ -725,6 +726,7 @@ def _record_ingest_source(
                 outcome.articles_found,
                 outcome.articles_new,
                 outcome.error_message,
+                duration_ms,
             ),
         )
 

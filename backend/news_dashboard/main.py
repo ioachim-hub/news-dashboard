@@ -163,6 +163,16 @@ class ShareArticleRequest(BaseModel):
     note: str | None = None
 
 
+class AddAnnotationRequest(BaseModel):
+    highlighted_text: str
+    offset_chars: int = 0
+    note: str | None = None
+
+
+class AddMessageRequest(BaseModel):
+    message: str
+
+
 class EnabledUpdate(BaseModel):
     enabled: bool
 
@@ -630,6 +640,7 @@ def share_article_endpoint(
         sender=current_user["username"],
         article_title=title,
     )
+    background_tasks.add_task(_generate_share_context_bg, share_id=int(share["id"]))
     return share
 
 
@@ -641,6 +652,12 @@ def _notify_share_recipient(*, to_user_id: int, sender: str, article_title: str)
         f"{sender} shared an article",
         article_title,
     )
+
+
+def _generate_share_context_bg(*, share_id: int) -> None:
+    from news_dashboard.shares import generate_share_context
+
+    generate_share_context(share_id)
 
 
 @api.get("/api/shares")
@@ -672,6 +689,77 @@ def mark_share_read_endpoint(
     from news_dashboard.shares import mark_share_read
 
     return {"ok": mark_share_read(share_id, current_user["id"])}
+
+
+@api.get("/api/shares/{share_id}")
+def get_share_endpoint(
+    share_id: int,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.shares import get_share
+
+    share = get_share(share_id, current_user["id"])
+    if share is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return share
+
+
+@api.get("/api/shares/{share_id}/annotations")
+def list_share_annotations(
+    share_id: int,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.shares import get_share, list_annotations
+
+    if get_share(share_id, current_user["id"]) is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return {"items": list_annotations(share_id)}
+
+
+@api.post("/api/shares/{share_id}/annotations")
+def add_share_annotation(
+    share_id: int,
+    payload: AddAnnotationRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    from news_dashboard.shares import add_annotation, get_share
+
+    if get_share(share_id, current_user["id"]) is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    annotation = add_annotation(
+        share_id,
+        highlighted_text=payload.highlighted_text,
+        offset_chars=payload.offset_chars,
+        note=payload.note,
+    )
+    background_tasks.add_task(_generate_share_context_bg, share_id=share_id)
+    return annotation
+
+
+@api.get("/api/shares/{share_id}/messages")
+def list_share_messages(
+    share_id: int,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.shares import get_share, list_messages
+
+    if get_share(share_id, current_user["id"]) is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return {"items": list_messages(share_id)}
+
+
+@api.post("/api/shares/{share_id}/messages")
+def add_share_message(
+    share_id: int,
+    payload: AddMessageRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.shares import add_message, get_share
+
+    if get_share(share_id, current_user["id"]) is None:
+        raise HTTPException(status_code=404, detail="Share not found")
+    return add_message(share_id, current_user["id"], payload.message)
 
 
 @api.get("/api/articles/{article_id}/read")
@@ -1348,93 +1436,6 @@ def summary(
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
 ) -> dict[str, Any]:
     return get_user_summary(user_id=current_user["id"])
-
-
-# ── Reading Goals & Quizzes ───────────────────────────────────────────────────
-
-
-class GoalCreateRequest(BaseModel):
-    description: str
-    keywords: str = ""
-
-
-class QuizSubmitRequest(BaseModel):
-    answers: list[int]
-
-
-@api.post("/api/goals")
-def create_goal_endpoint(
-    payload: GoalCreateRequest,
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import create_goal
-
-    description = payload.description.strip()
-    if not description:
-        raise HTTPException(status_code=400, detail="description must not be empty")
-    return create_goal(current_user["id"], description, payload.keywords)
-
-
-@api.get("/api/goals")
-def list_goals_endpoint(
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import list_goals
-
-    return {"items": list_goals(current_user["id"])}
-
-
-@api.delete("/api/goals/{goal_id}")
-def delete_goal_endpoint(
-    goal_id: int,
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import delete_goal
-
-    if not delete_goal(goal_id, current_user["id"]):
-        raise HTTPException(status_code=404, detail="goal not found")
-    return {"deleted": True}
-
-
-@api.get("/api/quizzes/latest")
-def get_latest_quiz_endpoint(
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import get_latest_quiz
-
-    quiz = get_latest_quiz(current_user["id"])
-    if not quiz:
-        raise HTTPException(status_code=404, detail="no quiz available")
-    return quiz
-
-
-@api.post("/api/quizzes/generate")
-def generate_quiz_endpoint(
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import generate_weekly_quiz
-
-    try:
-        quiz = generate_weekly_quiz(current_user["id"])
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    if not quiz:
-        raise HTTPException(status_code=404, detail="no eligible articles to quiz on")
-    return quiz
-
-
-@api.post("/api/quizzes/{quiz_id}/submit")
-def submit_quiz_endpoint(
-    quiz_id: int,
-    payload: QuizSubmitRequest,
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.quiz import submit_quiz
-
-    try:
-        return submit_quiz(quiz_id, current_user["id"], payload.answers)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # ── Admin user-management routes ─────────────────────────────────────────────

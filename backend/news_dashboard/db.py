@@ -390,26 +390,29 @@ POSTGRES_MULTIUSER_SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_article_shares_unread"
     " ON article_shares(to_user_id) WHERE read_at IS NULL",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS perspective_analysis JSONB",
+    "ALTER TABLE article_shares ADD COLUMN IF NOT EXISTS context_summary TEXT",
     """
-    CREATE TABLE IF NOT EXISTS user_goals (
-      id          SERIAL PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS share_annotations (
+      id              BIGSERIAL PRIMARY KEY,
+      share_id        BIGINT NOT NULL REFERENCES article_shares(id) ON DELETE CASCADE,
+      highlighted_text TEXT NOT NULL,
+      offset_chars    INTEGER NOT NULL DEFAULT 0,
+      note            TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_share_annotations_share"
+    " ON share_annotations(share_id, created_at)",
+    """
+    CREATE TABLE IF NOT EXISTS share_messages (
+      id          BIGSERIAL PRIMARY KEY,
+      share_id    BIGINT NOT NULL REFERENCES article_shares(id) ON DELETE CASCADE,
       user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      description TEXT NOT NULL,
-      keywords    TEXT NOT NULL DEFAULT '',
+      message     TEXT NOT NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_user_goals_user ON user_goals(user_id)",
-    """
-    CREATE TABLE IF NOT EXISTS user_quizzes (
-      id          SERIAL PRIMARY KEY,
-      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      questions   JSONB NOT NULL DEFAULT '[]'::jsonb,
-      score       INTEGER
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_user_quizzes_user ON user_quizzes(user_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_share_messages_share ON share_messages(share_id, created_at)",
 ]
 
 

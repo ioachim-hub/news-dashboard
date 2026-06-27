@@ -80,7 +80,10 @@ from news_dashboard.scheduler import (
     start_scheduler,
     stop_scheduler,
 )
-from news_dashboard.source_health import list_source_health
+from news_dashboard.source_health import (
+    generate_subscription_cleanup_suggestions,
+    list_source_health,
+)
 from news_dashboard.stats import (
     article_counts,
     articles_over_time,
@@ -169,6 +172,10 @@ class CreateSourceRequest(BaseModel):
     name: str
     category: str = "tech"
     slug: str | None = None
+
+
+class SourceCleanupRequest(BaseModel):
+    source_slugs: list[str]
 
 
 class IntervalUpdate(BaseModel):
@@ -757,6 +764,63 @@ def delete_source(
 @api.get("/api/sources/health")
 def sources_health() -> dict[str, Any]:
     return {"items": list_source_health()}
+
+
+@api.get("/api/sources/cleanup-suggestions")
+def source_cleanup_suggestions(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    return {"items": generate_subscription_cleanup_suggestions(int(current_user["id"]))}
+
+
+@api.post("/api/sources/cleanup")
+def source_cleanup(
+    payload: SourceCleanupRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    uid = int(current_user["id"])
+    requested_slugs = list(dict.fromkeys(payload.source_slugs))
+    if not requested_slugs:
+        return {"updated": [], "skipped": []}
+
+    init_db()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT slug, owner_user_id
+            FROM sources
+            WHERE slug = ANY(%s)
+              AND (owner_user_id IS NULL OR owner_user_id = %s)
+            """,
+            (requested_slugs, uid),
+        ).fetchall()
+        allowed = {str(row["slug"]): row_to_dict(row) for row in rows}
+        updated: list[str] = []
+        for slug in requested_slugs:
+            source = allowed.get(slug)
+            if source is None:
+                continue
+            if source.get("owner_user_id") is None:
+                conn.execute(
+                    """
+                    INSERT INTO user_sources(user_id, source_slug, enabled)
+                    VALUES (%s, %s, FALSE)
+                    ON CONFLICT(user_id, source_slug)
+                    DO UPDATE SET enabled = excluded.enabled
+                    """,
+                    (uid, slug),
+                )
+            else:
+                conn.execute(
+                    "UPDATE sources SET enabled = FALSE WHERE slug = %s AND owner_user_id = %s",
+                    (slug, uid),
+                )
+            updated.append(slug)
+
+    return {
+        "updated": updated,
+        "skipped": [slug for slug in requested_slugs if slug not in updated],
+    }
 
 
 @api.patch("/api/sources/{slug}/enabled")

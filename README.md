@@ -50,6 +50,7 @@ Runtime storage is PostgreSQL only. Set `DATABASE_URL` or the split
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | VAPID public and private keys for Web Push notifications. Generate using `npx web-push generate-vapid-keys`. |
 | `VAPID_EMAIL` | Contact email address used in VAPID claims mailto link. Defaults to `admin@example.com` if unset. |
 | `CORS_ORIGINS` | Comma-separated browser dev origins. |
+| `ANALYTICS_RETENTION_DAYS` | Days to retain `user_events` before the daily cleanup job prunes them. Defaults to `180`. |
 
 SQLite is supported only as a legacy import source for
 `news-dashboard-migrate sqlite-to-postgres`.

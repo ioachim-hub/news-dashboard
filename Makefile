@@ -1,9 +1,15 @@
-.PHONY: install lint format typecheck test check build
+.PHONY: install ci-install lint format typecheck test check build
 
-## install: install backend (editable + dev tools) and frontend dependencies
+## install: install backend (editable + dev tools) and update local frontend dependencies
 install:
 	pip install -e '.[dev]'
 	npm install
+	pre-commit install
+
+## ci-install: install backend and exact frontend dependencies from package-lock.json
+ci-install:
+	pip install -e '.[dev]'
+	npm ci
 	pre-commit install
 
 ## lint: run all linters without modifying files

@@ -12,6 +12,7 @@ import {
   Settings,
   Sparkles,
   Star,
+  SlidersHorizontal,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ export const secondaryNavigationItems: NavigationItem[] = [
   { to: '/briefs', label: 'Briefing History', icon: History, shortcut: 'h' },
   { to: '/feeds', label: 'Feeds', icon: Radio, shortcut: 'f' },
   { to: '/stats', label: 'Stats', icon: BarChart3 },
+  { to: '/reading-dna', label: 'Reading DNA', icon: SlidersHorizontal },
   { to: '/archive', label: 'Archive', icon: Archive },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -107,6 +109,7 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/briefs')) return 'Briefs';
   if (pathname.startsWith('/feeds')) return 'Feeds';
   if (pathname.startsWith('/stats')) return 'Stats';
+  if (pathname.startsWith('/reading-dna')) return 'Reading DNA';
   if (pathname.startsWith('/archive')) return 'Archive';
   if (pathname.startsWith('/settings')) return 'Settings';
   if (pathname.startsWith('/analytics')) return 'Analytics';

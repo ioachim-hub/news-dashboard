@@ -13,6 +13,8 @@ import type {
   NotificationSettings,
   NotificationSettingsUpdate,
   PushSubscribeRequest,
+  ReadingDna,
+  RecommendationPreferences,
   ReceivedShare,
   ShareableUser,
   Source,
@@ -108,6 +110,23 @@ export async function fetchSourceHealth(): Promise<SourceHealth[]> {
 
 export async function fetchSummary(): Promise<Summary> {
   return requestJson<Summary>('/api/summary');
+}
+
+export async function fetchReadingDna(): Promise<ReadingDna> {
+  return requestJson<ReadingDna>('/api/users/me/reading-dna');
+}
+
+export async function fetchRecommendationPreferences(): Promise<RecommendationPreferences> {
+  return requestJson<RecommendationPreferences>('/api/users/me/recommendation-preferences');
+}
+
+export async function saveRecommendationPreferences(
+  preferences: Partial<RecommendationPreferences>
+): Promise<RecommendationPreferences> {
+  return requestJson<RecommendationPreferences>('/api/users/me/recommendation-preferences', {
+    method: 'PATCH',
+    body: JSON.stringify(preferences),
+  });
 }
 
 export async function ingestNow(): Promise<{ inserted: number; results: Record<string, number> }> {

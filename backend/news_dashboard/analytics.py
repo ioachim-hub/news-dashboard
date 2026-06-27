@@ -90,6 +90,98 @@ def admin_analytics(
         }
 
 
+def reading_dna(
+    user_id: int,
+    days: int = 30,
+    db_path: Path | str | None = None,
+    database_url: str | None = None,
+) -> dict[str, Any]:
+    """Aggregate one user's reading distribution and dwell metrics."""
+    init_db(db_path, database_url=database_url)
+    days = max(1, min(days, 365))
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+    with connect(db_path, database_url=database_url) as conn:
+        return {
+            "range_days": days,
+            "generated_at": now.isoformat(),
+            "categories": _reading_distribution(conn, user_id, start, "a.category", "category"),
+            "sources": _reading_distribution(conn, user_id, start, "a.source_name", "source"),
+            "monthly_time": _monthly_time(conn, user_id, start),
+            "average_dwell_seconds": _average_dwell_seconds(conn, user_id, start),
+        }
+
+
+def _reading_distribution(
+    conn: Any,
+    user_id: int,
+    start: datetime,
+    field_sql: str,
+    alias: str,
+) -> list[dict[str, Any]]:
+    rows = _query(
+        conn,
+        f"""
+        SELECT {field_sql} AS {alias},
+               COUNT(*) FILTER (WHERE s.state = 'done') AS done,
+               COUNT(*) FILTER (WHERE s.state = 'skipped' OR s.skipped_at IS NOT NULL) AS skipped
+        FROM user_article_state s
+        JOIN articles a ON a.id = s.article_id
+        WHERE s.user_id = %s
+          AND (
+            s.done_at >= %s OR s.skipped_at >= %s OR s.updated_at >= %s
+          )
+        GROUP BY 1
+        ORDER BY done DESC, skipped ASC, {alias}
+        LIMIT 20
+        """,
+        (user_id, start, start, start),
+    )
+    totals = [int(row["done"]) + int(row["skipped"]) for row in rows]
+    denominator = sum(totals)
+    for row, total in zip(rows, totals, strict=True):
+        row["total"] = total
+        row["percentage"] = round((total / denominator) * 100.0, 1) if denominator else 0.0
+    return rows
+
+
+def _monthly_time(conn: Any, user_id: int, start: datetime) -> list[dict[str, Any]]:
+    rows = _query(
+        conn,
+        """
+        SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+               ROUND(COALESCE(SUM(duration_ms), 0) / 60000.0, 1) AS minutes
+        FROM user_events
+        WHERE user_id = %s
+          AND event_type = 'heartbeat'
+          AND created_at >= %s
+        GROUP BY 1
+        ORDER BY 1
+        """,
+        (user_id, start),
+    )
+    for row in rows:
+        row["minutes"] = float(row["minutes"])
+    return rows
+
+
+def _average_dwell_seconds(conn: Any, user_id: int, start: datetime) -> float:
+    row = conn.execute(
+        """
+        SELECT ROUND(AVG(duration_ms) / 1000.0, 1) AS seconds
+        FROM user_events
+        WHERE user_id = %s
+          AND event_type = 'article_close'
+          AND duration_ms IS NOT NULL
+          AND created_at >= %s
+        """,
+        (user_id, start),
+    ).fetchone()
+    if row is None or row["seconds"] is None:
+        return 0.0
+    return float(row["seconds"])
+
+
 def _summary(conn: Any, start: datetime, now: datetime) -> dict[str, Any]:
     day_ago = now - timedelta(days=1)
     week_ago = now - timedelta(days=7)

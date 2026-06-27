@@ -141,6 +141,14 @@ class AffinityProfile:
         return _clamp(blended, -1.0, 1.0) * AFFINITY_SCORE_SPAN
 
 
+@dataclass(frozen=True)
+class RecommendationPreferences:
+    """Manual user controls layered on top of learned recommendation signals."""
+
+    category_weights: dict[str, float] = field(default_factory=dict)
+    novelty_weight: float = 1.0
+
+
 def _normalize_affinity(weighted_sum: float, count: int) -> float:
     """Smoothed, normalized affinity in [-1, 1] for one feature value."""
     smoothed = weighted_sum / (count + AFFINITY_SMOOTHING)
@@ -279,6 +287,78 @@ def novelty_adjustment(
     # candidate is from the user's taste, the more novel it is.
     dissimilarity = _clamp((1.0 - similarity) / 2.0, 0.0, 1.0)
     return dissimilarity * _quality_factor(importance) * NOVELTY_SCORE_SPAN
+
+
+def get_recommendation_preferences(
+    user_id: int,
+    *,
+    db_path: Path | str | None = None,
+    database_url: str | None = None,
+) -> RecommendationPreferences:
+    """Return persisted manual recommendation preferences for ``user_id``."""
+    init_db(db_path, database_url=database_url)
+    with connect(db_path, database_url=database_url) as conn:
+        row = conn.execute(
+            """
+            SELECT category_weights, novelty_weight
+            FROM user_settings
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return RecommendationPreferences()
+    data = row_to_dict(row)
+    raw_weights = data.get("category_weights") or {}
+    category_weights = {
+        str(category): _clamp(float(weight), 0.0, 3.0)
+        for category, weight in dict(raw_weights).items()
+    }
+    return RecommendationPreferences(
+        category_weights=category_weights,
+        novelty_weight=_clamp(float(data.get("novelty_weight") or 1.0), 0.0, 3.0),
+    )
+
+
+def save_recommendation_preferences(
+    user_id: int,
+    *,
+    category_weights: dict[str, float] | None = None,
+    novelty_weight: float | None = None,
+    db_path: Path | str | None = None,
+    database_url: str | None = None,
+) -> RecommendationPreferences:
+    """Persist manual recommendation preferences and mark current scores stale."""
+    current = get_recommendation_preferences(user_id, db_path=db_path, database_url=database_url)
+    next_weights = current.category_weights if category_weights is None else category_weights
+    cleaned_weights = {
+        str(category).strip().lower(): _clamp(float(weight), 0.0, 3.0)
+        for category, weight in next_weights.items()
+        if str(category).strip()
+    }
+    next_novelty = current.novelty_weight if novelty_weight is None else novelty_weight
+    cleaned_novelty = _clamp(float(next_novelty), 0.0, 3.0)
+    init_db(db_path, database_url=database_url)
+    with connect(db_path, database_url=database_url) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_settings(user_id, category_weights, novelty_weight)
+            VALUES (%s, %s::jsonb, %s)
+            ON CONFLICT(user_id) DO UPDATE SET
+              category_weights = excluded.category_weights,
+              novelty_weight = excluded.novelty_weight,
+              updated_at = NOW()
+            """,
+            (user_id, json.dumps(cleaned_weights), cleaned_novelty),
+        )
+        conn.execute(
+            "UPDATE user_article_recommendations SET stale = TRUE WHERE user_id = %s",
+            (user_id,),
+        )
+    return RecommendationPreferences(
+        category_weights=cleaned_weights,
+        novelty_weight=cleaned_novelty,
+    )
 
 
 def generate_recommendation_explanation(
@@ -520,6 +600,11 @@ def recompute_user_recommendations(
     with connect(db_path, database_url=database_url) as conn:
         profile = build_affinity_profile(_load_user_signals(conn, user_id))
         semantic_profile = build_semantic_profile(_load_user_history_vectors(conn, user_id))
+        preferences = get_recommendation_preferences(
+            user_id,
+            db_path=db_path,
+            database_url=database_url,
+        )
         candidates = _load_candidates(conn, user_id, limit)
 
     # Novelty needs an embedded taste vector to measure surprise against; without
@@ -536,11 +621,20 @@ def recompute_user_recommendations(
         importance = _opt_float(candidate.get("importance_score"))
         age_hours = _opt_float(candidate.get("age_hours"))
         adjustment = profile.adjustment(source_slug, category, tags)
+        category_factor = preferences.category_weights.get(str(category).lower(), 1.0)
+        manual_category = (category_factor - 1.0) * CATEGORY_AFFINITY_WEIGHT * AFFINITY_SCORE_SPAN
         candidate_vector = _decode_candidate_embedding(candidate.get("embedding"))
         semantic = semantic_adjustment(candidate_vector, semantic_profile)
         freshness = freshness_adjustment(age_hours, importance)
-        novelty = novelty_adjustment(candidate_vector, semantic_profile, importance)
-        final_score = _clamp(base + adjustment + semantic + freshness + novelty, 0.0, 100.0)
+        novelty = (
+            novelty_adjustment(candidate_vector, semantic_profile, importance)
+            * preferences.novelty_weight
+        )
+        final_score = _clamp(
+            base + adjustment + manual_category + semantic + freshness + novelty,
+            0.0,
+            100.0,
+        )
         upsert_recommendation_score(
             user_id,
             int(candidate["id"]),
@@ -551,9 +645,11 @@ def recompute_user_recommendations(
             signals={
                 "base_score": round(base, 4),
                 "affinity_adjustment": round(adjustment, 4),
+                "manual_category_adjustment": round(manual_category, 4),
                 "semantic_adjustment": round(semantic, 4),
                 "freshness_adjustment": round(freshness, 4),
                 "novelty_adjustment": round(novelty, 4),
+                "novelty_weight": round(preferences.novelty_weight, 4),
                 "source_slug": source_slug,
                 "category": category,
             },

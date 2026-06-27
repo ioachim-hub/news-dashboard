@@ -260,6 +260,35 @@ export interface PushSubscribeRequest {
   auth: string;
 }
 
+export interface ReadingDnaBucket {
+  category?: string;
+  source?: string;
+  done: number;
+  skipped: number;
+  total: number;
+  percentage: number;
+}
+
+export interface MonthlyTimePoint {
+  month: string;
+  minutes: number;
+}
+
+export interface ReadingDna {
+  range_days: number;
+  generated_at: string;
+  categories: ReadingDnaBucket[];
+  sources: ReadingDnaBucket[];
+  monthly_time: MonthlyTimePoint[];
+  average_dwell_seconds: number;
+}
+
+export interface RecommendationPreferences {
+  category_weights: Record<string, number>;
+  novelty_weight: number;
+  recomputed?: number;
+}
+
 export interface AnalyticsSummary {
   dau: number;
   wau: number;

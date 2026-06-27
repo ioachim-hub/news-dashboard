@@ -12,6 +12,7 @@ from news_dashboard.recommendations import (
     build_affinity_profile,
     parse_tags,
     recompute_user_recommendations,
+    save_recommendation_preferences,
     score_article,
 )
 
@@ -202,6 +203,17 @@ def _persisted_score(db_path: str, user_id: int, article_id: int) -> float:
     return float(row["recommendation_score"])
 
 
+def _persisted_signals(db_path: str, user_id: int, article_id: int) -> dict[str, Any]:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT signals FROM user_article_recommendations"
+            " WHERE user_id = %s AND article_id = %s",
+            (user_id, article_id),
+        ).fetchone()
+    assert row is not None
+    return dict(row["signals"])
+
+
 def test_recompute_persists_affinity_adjusted_scores(
     tmp_path: Path, monkeypatch: Any, pg_clean: str
 ) -> None:
@@ -280,3 +292,76 @@ def test_recompute_with_no_history_keeps_base_scores(
         + signals["novelty_adjustment"]
     )
     assert float(row["recommendation_score"]) == pytest.approx(expected)
+
+
+def test_manual_category_preferences_change_user_scores(
+    tmp_path: Path, monkeypatch: Any, pg_clean: str
+) -> None:
+    db_path = _setup_db(monkeypatch, pg_clean)
+    _insert_source(db_path, "tech-src", category="tech")
+    _insert_source(db_path, "science-src", category="science")
+    user_id = _make_user(db_path, "alice")
+    tech = _insert_article(db_path, "tech-src", "tech", category="tech", importance=50)
+    science = _insert_article(
+        db_path,
+        "science-src",
+        "science",
+        category="science",
+        importance=50,
+    )
+
+    recompute_user_recommendations(user_id, db_path=db_path)
+    baseline_delta = _persisted_score(db_path, user_id, science) - _persisted_score(
+        db_path,
+        user_id,
+        tech,
+    )
+
+    save_recommendation_preferences(
+        user_id,
+        category_weights={"science": 1.8, "tech": 0.6},
+        db_path=db_path,
+    )
+    recompute_user_recommendations(user_id, db_path=db_path)
+
+    adjusted_delta = _persisted_score(db_path, user_id, science) - _persisted_score(
+        db_path,
+        user_id,
+        tech,
+    )
+    assert adjusted_delta > baseline_delta
+    assert _persisted_signals(db_path, user_id, science)["manual_category_adjustment"] > 0
+    assert _persisted_signals(db_path, user_id, tech)["manual_category_adjustment"] < 0
+
+
+def test_manual_novelty_weight_changes_novel_article_score(
+    tmp_path: Path, monkeypatch: Any, pg_clean: str
+) -> None:
+    import struct
+
+    db_path = _setup_db(monkeypatch, pg_clean)
+    _insert_source(db_path, "src", category="ai")
+    user_id = _make_user(db_path, "alice")
+    history = _insert_article(db_path, "src", "history", category="ai")
+    candidate = _insert_article(db_path, "src", "candidate", category="ai", importance=100)
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE articles SET embedding = %s WHERE id = %s",
+            (struct.pack("2f", 1.0, 0.0), history),
+        )
+        conn.execute(
+            "UPDATE articles SET embedding = %s WHERE id = %s",
+            (struct.pack("2f", -1.0, 0.0), candidate),
+        )
+    _set_state(db_path, user_id, history, state="done")
+
+    save_recommendation_preferences(user_id, novelty_weight=0.0, db_path=db_path)
+    recompute_user_recommendations(user_id, db_path=db_path)
+    conservative = _persisted_score(db_path, user_id, candidate)
+
+    save_recommendation_preferences(user_id, novelty_weight=2.0, db_path=db_path)
+    recompute_user_recommendations(user_id, db_path=db_path)
+
+    exploratory = _persisted_score(db_path, user_id, candidate)
+    assert exploratory > conservative
+    assert _persisted_signals(db_path, user_id, candidate)["novelty_weight"] == pytest.approx(2.0)

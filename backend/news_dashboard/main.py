@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as StarletteResponse
 
-from news_dashboard.analytics import admin_analytics, record_events
+from news_dashboard.analytics import admin_analytics, reading_dna, record_events
 from news_dashboard.auth import (
     _session_days,
     authenticate,
@@ -1097,6 +1097,54 @@ class PushSubscribeRequest(BaseModel):
     endpoint: str
     p256dh: str
     auth: str
+
+
+class RecommendationPreferencesUpdate(BaseModel):
+    category_weights: dict[str, float] | None = None
+    novelty_weight: float | None = None
+
+
+def _preference_payload(preferences: Any) -> dict[str, Any]:
+    return {
+        "category_weights": preferences.category_weights,
+        "novelty_weight": preferences.novelty_weight,
+    }
+
+
+@api.get("/api/users/me/reading-dna")
+def reading_dna_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> dict[str, Any]:
+    return reading_dna(current_user["id"], days=days)
+
+
+@api.get("/api/users/me/recommendation-preferences")
+def get_recommendation_preferences_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.recommendations import get_recommendation_preferences
+
+    return _preference_payload(get_recommendation_preferences(current_user["id"]))
+
+
+@api.patch("/api/users/me/recommendation-preferences")
+def update_recommendation_preferences_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    payload: RecommendationPreferencesUpdate,
+) -> dict[str, Any]:
+    from news_dashboard.recommendations import (
+        recompute_user_recommendations,
+        save_recommendation_preferences,
+    )
+
+    preferences = save_recommendation_preferences(
+        current_user["id"],
+        category_weights=payload.category_weights,
+        novelty_weight=payload.novelty_weight,
+    )
+    scored = recompute_user_recommendations(current_user["id"])
+    return {**_preference_payload(preferences), "recomputed": scored}
 
 
 @api.get("/api/settings/notifications")

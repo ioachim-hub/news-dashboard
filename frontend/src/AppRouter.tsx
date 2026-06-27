@@ -29,6 +29,9 @@ const FeedsLogsPage = lazy(() =>
   import('./pages/FeedsLogsPage').then((m) => ({ default: m.FeedsLogsPage }))
 );
 const StatsPage = lazy(() => import('./pages/StatsPage').then((m) => ({ default: m.StatsPage })));
+const ReadingDnaPage = lazy(() =>
+  import('./pages/ReadingDnaPage').then((m) => ({ default: m.ReadingDnaPage }))
+);
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
@@ -122,6 +125,7 @@ export const routes: RouteObject[] = [
       { path: 'briefs', element: withSuspense(BriefingsHistoryPage) },
       { path: 'briefs/:id', element: withSuspense(BriefingDetailPage) },
       { path: 'stats', element: withSuspense(StatsPage) },
+      { path: 'reading-dna', element: withSuspense(ReadingDnaPage) },
       { path: 'archive', element: <ArchivePage /> },
       { path: 'settings', element: withSuspense(SettingsPage) },
       { path: 'admin', element: withSuspense(AdminPage) },

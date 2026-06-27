@@ -95,6 +95,21 @@ export interface SourceHealth {
   status: 'OK' | 'ERROR';
 }
 
+export interface SourceCleanupSuggestion {
+  source_slug: string;
+  source_name: string;
+  action: 'unsubscribe';
+  reason: 'low_signal' | 'stale';
+  message: string;
+  articles_last_30_days: number;
+  skipped_count: number;
+  done_count: number;
+  starred_count: number;
+  archived_count: number;
+  skip_rate: number;
+  engagement_score: number;
+}
+
 export interface Summary {
   byStatus: Record<string, number>;
   byCategory: Record<string, number>;

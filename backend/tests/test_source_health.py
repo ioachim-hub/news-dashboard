@@ -6,6 +6,7 @@ import contextlib
 from pathlib import Path
 from typing import Any
 
+from news_dashboard.auth import create_user
 from news_dashboard.db import connect
 from news_dashboard.ingest import (
     infer_tags,
@@ -13,7 +14,10 @@ from news_dashboard.ingest import (
     search_articles,
     sync_sources,
 )
-from news_dashboard.source_health import list_source_health
+from news_dashboard.source_health import (
+    generate_subscription_cleanup_suggestions,
+    list_source_health,
+)
 from news_dashboard.sources import SourceDefinition
 
 # ──────────────────────────────────────────────
@@ -32,6 +36,81 @@ def _insert_article(conn: Any, n: int = 1) -> None:
                ON CONFLICT (url) DO NOTHING""",
             (f"https://example.com/art-{i}", f"https://example.com/art-{i}", f"Article {i}"),
         )
+
+
+def _make_user(db_path: Path | str, username: str = "alice") -> int:
+    user = create_user(username, "pw", db_path=db_path)
+    return int(user["id"])
+
+
+def _api_client(user_id: int) -> Any:
+    from fastapi.testclient import TestClient
+
+    from news_dashboard.auth import require_admin, require_auth
+    from news_dashboard.main import app
+
+    fake = {"id": user_id, "username": "testuser", "email": None, "is_admin": False}
+    app.dependency_overrides[require_auth] = lambda: fake
+    app.dependency_overrides[require_admin] = lambda: fake
+    return TestClient(app, raise_server_exceptions=True)
+
+
+def _add_source(conn: Any, slug: str, name: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO sources(slug, name, url, category, kind, priority, enabled)
+        VALUES (%s, %s, %s, 'tech', 'rss_feed', 10, TRUE)
+        """,
+        (slug, name, f"https://example.com/{slug}.xml"),
+    )
+
+
+def _add_article(
+    conn: Any,
+    *,
+    user_id: int,
+    slug: str,
+    index: int,
+    state: str = "today",
+    days_old: int = 1,
+) -> None:
+    row = conn.execute(
+        """
+        INSERT INTO articles(
+          url, canonical_url, title, source_slug, source_name, category, kind, discovered_at
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, 'tech', 'rss_feed',
+          NOW() - (%s * INTERVAL '1 day')
+        )
+        RETURNING id
+        """,
+        (
+            f"https://example.com/{slug}/{index}",
+            f"https://example.com/{slug}/{index}",
+            f"{slug} article {index}",
+            slug,
+            slug,
+            days_old,
+        ),
+    ).fetchone()
+    article_id = int(row["id"])
+    if state == "today":
+        return
+    conn.execute(
+        """
+        INSERT INTO user_article_state(
+          user_id, article_id, state, starred, done_at, skipped_at, archived_at
+        )
+        VALUES (
+          %s, %s, %s, %s,
+          CASE WHEN %s = 'done' THEN NOW() ELSE NULL END,
+          CASE WHEN %s = 'skipped' THEN NOW() ELSE NULL END,
+          CASE WHEN %s = 'archived' THEN NOW() ELSE NULL END
+        )
+        """,
+        (user_id, article_id, state, state == "starred", state, state, state),
+    )
 
 
 def test_source_columns_present(tmp_path: Path) -> None:
@@ -139,6 +218,102 @@ def test_source_health_counts_leading_errors_and_sorts_first(tmp_path: Path) -> 
     assert python["status"] == "ERROR"
     assert python["last_error"] == "TimeoutError: connection timed out"
     assert items[0]["slug"] == "python-insider"
+
+
+def test_subscription_cleanup_suggests_high_skip_rate_source(
+    pg_clean: str, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", pg_clean)
+    uid = _make_user(pg_clean)
+    with connect(pg_clean) as conn:
+        _add_source(conn, "noise-feed", "Noise Feed")
+        for i in range(46):
+            _add_article(conn, user_id=uid, slug="noise-feed", index=i, state="skipped")
+        for i in range(46, 50):
+            _add_article(conn, user_id=uid, slug="noise-feed", index=i, state="done")
+
+    suggestions = generate_subscription_cleanup_suggestions(uid, database_url=pg_clean)
+
+    assert suggestions == [
+        {
+            "source_slug": "noise-feed",
+            "source_name": "Noise Feed",
+            "action": "unsubscribe",
+            "reason": "low_signal",
+            "message": "Unsubscribe from 'Noise Feed' (92% skipped in the last 30 days)",
+            "articles_last_30_days": 50,
+            "skipped_count": 46,
+            "done_count": 4,
+            "starred_count": 0,
+            "archived_count": 0,
+            "skip_rate": 0.92,
+            "engagement_score": 0.08,
+        }
+    ]
+
+
+def test_subscription_cleanup_suggests_stale_source(pg_clean: str, monkeypatch: Any) -> None:
+    monkeypatch.setenv("DATABASE_URL", pg_clean)
+    uid = _make_user(pg_clean)
+    with connect(pg_clean) as conn:
+        _add_source(conn, "quiet-feed", "Quiet Feed")
+        _add_article(conn, user_id=uid, slug="quiet-feed", index=1, days_old=45)
+
+    suggestions = generate_subscription_cleanup_suggestions(uid, database_url=pg_clean)
+
+    assert suggestions == [
+        {
+            "source_slug": "quiet-feed",
+            "source_name": "Quiet Feed",
+            "action": "unsubscribe",
+            "reason": "stale",
+            "message": "Unsubscribe from 'Quiet Feed' (no articles in the last 30 days)",
+            "articles_last_30_days": 0,
+            "skipped_count": 0,
+            "done_count": 0,
+            "starred_count": 0,
+            "archived_count": 0,
+            "skip_rate": 0.0,
+            "engagement_score": 0.0,
+        }
+    ]
+
+
+def test_subscription_cleanup_api_unsubscribes_requested_sources(
+    pg_clean: str, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", pg_clean)
+    uid = _make_user(pg_clean)
+    with connect(pg_clean) as conn:
+        _add_source(conn, "noise-feed", "Noise Feed")
+        _add_source(conn, "keeper-feed", "Keeper Feed")
+
+    client = _api_client(uid)
+    try:
+        suggestions = client.get("/api/sources/cleanup-suggestions")
+        assert suggestions.status_code == 200
+
+        response = client.post("/api/sources/cleanup", json={"source_slugs": ["noise-feed"]})
+        assert response.status_code == 200
+        assert response.json() == {"updated": ["noise-feed"], "skipped": []}
+    finally:
+        from news_dashboard.auth import require_admin, require_auth
+        from news_dashboard.main import app
+
+        app.dependency_overrides.pop(require_auth, None)
+        app.dependency_overrides.pop(require_admin, None)
+
+    with connect(pg_clean) as conn:
+        rows = conn.execute(
+            """
+            SELECT source_slug, enabled
+            FROM user_sources
+            WHERE user_id = %s
+            ORDER BY source_slug
+            """,
+            (uid,),
+        ).fetchall()
+    assert [(row["source_slug"], row["enabled"]) for row in rows] == [("noise-feed", False)]
 
 
 # ──────────────────────────────────────────────

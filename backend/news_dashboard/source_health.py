@@ -5,6 +5,9 @@ from typing import Any
 
 from news_dashboard.db import connect, init_db, row_to_dict
 
+LOW_SIGNAL_MIN_ARTICLES = 50
+LOW_SIGNAL_SKIP_RATE = 0.9
+
 
 def _clean_error(value: Any) -> str | None:
     if value is None:
@@ -39,6 +42,15 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -137,3 +149,107 @@ def list_source_health(db_path: Path | str | None = None) -> list[dict[str, Any]
             str(item["name"]).lower(),
         ),
     )
+
+
+def generate_subscription_cleanup_suggestions(
+    user_id: int,
+    *,
+    db_path: Path | str | None = None,
+    database_url: str | None = None,
+) -> list[dict[str, Any]]:
+    """Find noisy or stale sources the user may want to unsubscribe from."""
+    init_db(db_path, database_url=database_url)
+    with connect(db_path, database_url=database_url) as conn:
+        rows = conn.execute(
+            """
+            WITH user_visible_sources AS (
+              SELECT s.slug, s.name
+              FROM sources s
+              LEFT JOIN user_sources us
+                ON us.source_slug = s.slug AND us.user_id = %s
+              WHERE (s.owner_user_id IS NULL OR s.owner_user_id = %s)
+                AND CASE WHEN s.owner_user_id IS NULL THEN COALESCE(us.enabled, TRUE)
+                         ELSE s.enabled IS TRUE END
+            ),
+            source_totals AS (
+              SELECT
+                uvs.slug,
+                uvs.name,
+                COUNT(a.id) FILTER (
+                  WHERE a.discovered_at::timestamptz >= NOW() - INTERVAL '30 days'
+                ) AS articles_last_30_days,
+                COUNT(uas.article_id) FILTER (
+                  WHERE a.discovered_at::timestamptz >= NOW() - INTERVAL '30 days'
+                    AND uas.state = 'skipped'
+                ) AS skipped_count,
+                COUNT(uas.article_id) FILTER (
+                  WHERE a.discovered_at::timestamptz >= NOW() - INTERVAL '30 days'
+                    AND uas.state = 'done'
+                ) AS done_count,
+                COUNT(uas.article_id) FILTER (
+                  WHERE a.discovered_at::timestamptz >= NOW() - INTERVAL '30 days'
+                    AND uas.starred IS TRUE
+                ) AS starred_count,
+                COUNT(uas.article_id) FILTER (
+                  WHERE a.discovered_at::timestamptz >= NOW() - INTERVAL '30 days'
+                    AND uas.state = 'archived'
+                ) AS archived_count,
+                COUNT(a.id) AS lifetime_articles
+              FROM user_visible_sources uvs
+              LEFT JOIN articles a ON a.source_slug = uvs.slug
+              LEFT JOIN user_article_state uas
+                ON uas.article_id = a.id AND uas.user_id = %s
+              GROUP BY uvs.slug, uvs.name
+            )
+            SELECT *
+            FROM source_totals
+            WHERE lifetime_articles > 0
+            ORDER BY articles_last_30_days DESC, name ASC
+            """,
+            (user_id, user_id, user_id),
+        ).fetchall()
+
+    suggestions: list[dict[str, Any]] = []
+    for row in rows:
+        source = row_to_dict(row)
+        total = _as_int(source.get("articles_last_30_days"))
+        skipped = _as_int(source.get("skipped_count"))
+        done = _as_int(source.get("done_count"))
+        starred = _as_int(source.get("starred_count"))
+        archived = _as_int(source.get("archived_count"))
+        skip_rate = round(skipped / total, 2) if total else 0.0
+        engagement_score = round((done + starred) / total, 2) if total else 0.0
+        source_name = str(source["name"])
+
+        reason: str | None = None
+        message: str | None = None
+        if total >= LOW_SIGNAL_MIN_ARTICLES and skip_rate > LOW_SIGNAL_SKIP_RATE:
+            reason = "low_signal"
+            message = (
+                f"Unsubscribe from '{source_name}' ({skip_rate:.0%} skipped in the last 30 days)"
+            )
+        elif total == 0:
+            reason = "stale"
+            message = f"Unsubscribe from '{source_name}' (no articles in the last 30 days)"
+
+        if reason is None or message is None:
+            continue
+
+        suggestions.append(
+            {
+                "source_slug": str(source["slug"]),
+                "source_name": source_name,
+                "action": "unsubscribe",
+                "reason": reason,
+                "message": message,
+                "articles_last_30_days": total,
+                "skipped_count": skipped,
+                "done_count": done,
+                "starred_count": starred,
+                "archived_count": archived,
+                "skip_rate": _as_float(skip_rate),
+                "engagement_score": _as_float(engagement_score),
+            }
+        )
+
+    return suggestions

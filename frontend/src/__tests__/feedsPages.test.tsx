@@ -11,7 +11,9 @@ import type { Source } from '../types';
 // the same module, so one mock factory covers both import specifiers.
 const apiMock = vi.hoisted(() => ({
   fetchSources: vi.fn(),
+  fetchSourceCleanupSuggestions: vi.fn(),
   updateSourceEnabled: vi.fn(),
+  applySourceCleanup: vi.fn(),
   fetchSchedulerStatus: vi.fn(),
   setSchedulerInterval: vi.fn(),
   pauseScheduler: vi.fn(),
@@ -89,6 +91,10 @@ describe('FeedsPage', () => {
 // ── SourcesPage ──────────────────────────────────────────────────────────────
 
 describe('SourcesPage', () => {
+  beforeEach(() => {
+    apiMock.fetchSourceCleanupSuggestions.mockResolvedValue([]);
+  });
+
   it('shows a loading skeleton before data resolves', () => {
     apiMock.fetchSources.mockReturnValue(new Promise(vi.fn()));
     const { container } = withProviders(<SourcesPage />);

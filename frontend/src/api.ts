@@ -18,6 +18,7 @@ import type {
   ReceivedShare,
   ShareableUser,
   Source,
+  SourceCleanupSuggestion,
   SourceHealth,
   SourceQualityRow,
   SourceVolumePoint,
@@ -106,6 +107,23 @@ export async function fetchSources(): Promise<Source[]> {
 export async function fetchSourceHealth(): Promise<SourceHealth[]> {
   const data = await requestJson<{ items: SourceHealth[] }>('/api/sources/health');
   return data.items;
+}
+
+export async function fetchSourceCleanupSuggestions(): Promise<SourceCleanupSuggestion[]> {
+  const data = await requestJson<{ items: SourceCleanupSuggestion[] }>(
+    '/api/sources/cleanup-suggestions'
+  );
+  return data.items;
+}
+
+export async function applySourceCleanup(sourceSlugs: string[]): Promise<{
+  updated: string[];
+  skipped: string[];
+}> {
+  return requestJson('/api/sources/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ source_slugs: sourceSlugs }),
+  });
 }
 
 export async function fetchSummary(): Promise<Summary> {

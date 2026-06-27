@@ -1,10 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Sparkles, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { fetchSources, updateSourceEnabled } from '@/api';
+import {
+  applySourceCleanup,
+  fetchSourceCleanupSuggestions,
+  fetchSources,
+  updateSourceEnabled,
+} from '@/api';
 import { relativeTime } from '@/lib/format';
-import type { Source } from '@/types';
+import type { Source, SourceCleanupSuggestion } from '@/types';
 
 type HealthState = 'ok' | 'stale' | 'error';
 
@@ -47,12 +53,22 @@ function HealthBadge({ health }: { health: HealthState }) {
 }
 
 const SOURCES_KEY = 'sources';
+const SOURCE_CLEANUP_KEY = 'source-cleanup-suggestions';
+
+function formatSuggestionMeta(suggestion: SourceCleanupSuggestion): string {
+  if (suggestion.reason === 'stale') return 'No articles in 30 days';
+  return `${Math.round(suggestion.skip_rate * 100)}% skipped · ${suggestion.articles_last_30_days} articles`;
+}
 
 export function SourcesPage() {
   const qc = useQueryClient();
   const { data: sources = [], isLoading } = useQuery({
     queryKey: [SOURCES_KEY],
     queryFn: fetchSources,
+  });
+  const { data: cleanupSuggestions = [] } = useQuery({
+    queryKey: [SOURCE_CLEANUP_KEY],
+    queryFn: fetchSourceCleanupSuggestions,
   });
 
   const toggleMutation = useMutation({
@@ -73,6 +89,32 @@ export function SourcesPage() {
       void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
     },
   });
+  const cleanupMutation = useMutation({
+    mutationFn: (sourceSlug: string) => applySourceCleanup([sourceSlug]),
+    onMutate: async (sourceSlug) => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: [SOURCES_KEY] }),
+        qc.cancelQueries({ queryKey: [SOURCE_CLEANUP_KEY] }),
+      ]);
+      const prevSources = qc.getQueryData<Source[]>([SOURCES_KEY]);
+      const prevSuggestions = qc.getQueryData<SourceCleanupSuggestion[]>([SOURCE_CLEANUP_KEY]);
+      qc.setQueryData<Source[]>([SOURCES_KEY], (old = []) =>
+        old.map((s) => (s.slug === sourceSlug ? { ...s, enabled: 0, subscribed: false } : s))
+      );
+      qc.setQueryData<SourceCleanupSuggestion[]>([SOURCE_CLEANUP_KEY], (old = []) =>
+        old.filter((s) => s.source_slug !== sourceSlug)
+      );
+      return { prevSources, prevSuggestions };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevSources) qc.setQueryData([SOURCES_KEY], ctx.prevSources);
+      if (ctx?.prevSuggestions) qc.setQueryData([SOURCE_CLEANUP_KEY], ctx.prevSuggestions);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
+      void qc.invalidateQueries({ queryKey: [SOURCE_CLEANUP_KEY] });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -86,6 +128,41 @@ export function SourcesPage() {
 
   return (
     <div>
+      {cleanupSuggestions.length > 0 && (
+        <section className="border-b border-border bg-muted/25 px-4 py-4 md:px-5">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Sparkles className="size-4 text-primary" />
+              <span>Subscription Optimizer</span>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {cleanupSuggestions.map((suggestion) => (
+                <div
+                  key={suggestion.source_slug}
+                  className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{suggestion.message}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {formatSuggestionMeta(suggestion)}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => cleanupMutation.mutate(suggestion.source_slug)}
+                    disabled={cleanupMutation.isPending}
+                  >
+                    <Trash2 className="size-4" />
+                    Apply Cleanup
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* desktop table */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm">

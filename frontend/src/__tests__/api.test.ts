@@ -129,6 +129,19 @@ describe('sources, summary, ingest', () => {
     expect(await api.fetchSourceHealth()).toEqual([{ slug: 's' }]);
   });
 
+  it('fetchSourceCleanupSuggestions unwraps items', async () => {
+    stubFetch(() => jsonOk({ items: [{ source_slug: 's' }] }));
+    expect(await api.fetchSourceCleanupSuggestions()).toEqual([{ source_slug: 's' }]);
+  });
+
+  it('applySourceCleanup POSTs selected slugs', async () => {
+    const { calls } = stubFetch(() => jsonOk({ updated: ['s'], skipped: [] }));
+    await api.applySourceCleanup(['s']);
+    expect(calls[0].url).toBe('/api/sources/cleanup');
+    expect(calls[0].init?.method).toBe('POST');
+    expect(calls[0].init?.body).toBe(JSON.stringify({ source_slugs: ['s'] }));
+  });
+
   it('fetchSummary returns the summary', async () => {
     stubFetch(() => jsonOk({ total: 5 }));
     expect(await api.fetchSummary()).toEqual({ total: 5 });

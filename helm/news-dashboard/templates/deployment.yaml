@@ -179,13 +179,13 @@ spec:
               name: http
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /api/ready
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /api/live
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20

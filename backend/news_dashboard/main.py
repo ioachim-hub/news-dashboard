@@ -239,6 +239,21 @@ def health() -> dict[str, Any]:
     return {"status": "ok"}
 
 
+@public_router.get("/api/live")
+def liveness() -> dict[str, Any]:
+    return {"status": "ok"}
+
+
+@public_router.get("/api/ready")
+def readiness() -> dict[str, Any]:
+    try:
+        with connect() as conn:
+            conn.execute("SELECT 1")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
+    return {"status": "ok"}
+
+
 @public_router.get("/api/auth/config")
 def auth_config() -> dict[str, Any]:
     return keycloak_auth_metadata()

@@ -543,6 +543,20 @@ def search(  # noqa: PLR0913
     }
 
 
+@api.get("/api/articles/topic-map")
+def articles_topic_map(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.insights import InsightsNotConfiguredError, cluster_recent_articles
+
+    try:
+        clusters = cluster_recent_articles(user_id=current_user["id"])
+    except InsightsNotConfiguredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    return {"clusters": clusters}
+
+
 @api.get("/api/articles/{article_id}")
 def get_article_by_id(
     article_id: int,
@@ -600,20 +614,6 @@ def article_insights(
         raise HTTPException(status_code=404, detail="article not found")
 
     return {"bullets": bullets}
-
-
-@api.get("/api/articles/topic-map")
-def articles_topic_map(
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.insights import InsightsNotConfiguredError, cluster_recent_articles
-
-    try:
-        clusters = cluster_recent_articles(user_id=current_user["id"])
-    except InsightsNotConfiguredError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-
-    return {"clusters": clusters}
 
 
 @api.get("/api/articles/{article_id}/perspectives")

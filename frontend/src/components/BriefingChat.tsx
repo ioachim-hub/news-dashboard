@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { MessageCircle, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,7 @@ export function BriefingChat({ briefingId }: { briefingId: number }) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [briefingUnavailable, setBriefingUnavailable] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,11 +48,15 @@ export function BriefingChat({ briefingId }: { briefingId: number }) {
     try {
       const { reply } = await chatWithBriefing(briefingId, text, history);
       setHistory([...nextHistory, { role: 'assistant', content: reply }]);
-    } catch {
-      setHistory([
-        ...nextHistory,
-        { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
-      ]);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'briefing not found') {
+        setBriefingUnavailable(true);
+      } else {
+        setHistory([
+          ...nextHistory,
+          { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
+        ]);
+      }
     } finally {
       setLoading(false);
     }
@@ -91,7 +97,7 @@ export function BriefingChat({ briefingId }: { briefingId: number }) {
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
-          {history.length === 0 && (
+          {history.length === 0 && !briefingUnavailable && (
             <p className="text-xs text-muted-foreground text-center mt-8">
               Ask anything about today&apos;s briefing or the articles it covers.
             </p>
@@ -106,6 +112,29 @@ export function BriefingChat({ briefingId }: { briefingId: number }) {
               </div>
             </div>
           )}
+          {briefingUnavailable && (
+            <div
+              className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+              data-testid="briefing-unavailable"
+            >
+              <p className="font-medium text-foreground">This briefing is no longer available.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Refresh the briefing or open it from history.
+              </p>
+              <div className="flex gap-2 mt-3 flex-wrap">
+                <Link to="/brief">
+                  <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                    Latest briefing
+                  </Button>
+                </Link>
+                <Link to="/briefs">
+                  <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+                    Briefing history
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 
@@ -115,14 +144,14 @@ export function BriefingChat({ briefingId }: { briefingId: number }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question…"
-            disabled={loading}
+            disabled={loading || briefingUnavailable}
             className="flex-1"
             aria-label="Chat input"
           />
           <Button
             size="icon"
             onClick={() => void sendMessage()}
-            disabled={loading || !input.trim()}
+            disabled={loading || !input.trim() || briefingUnavailable}
             aria-label="Send"
           >
             <Send className="size-4" />

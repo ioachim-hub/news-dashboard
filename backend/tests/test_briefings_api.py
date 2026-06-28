@@ -421,6 +421,7 @@ def test_chat_returns_404_when_briefing_missing(client: TestClient, monkeypatch:
     monkeypatch.setattr(main_mod, "chat_with_briefing", _raise)
     resp = client.post("/api/briefings/99/chat", json={"message": "hello", "history": []})
     assert resp.status_code == 404
+    assert resp.json()["detail"] == "briefing not found"
 
 
 def test_chat_returns_503_when_ai_not_configured(client: TestClient, monkeypatch: Any) -> None:

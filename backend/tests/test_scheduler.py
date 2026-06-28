@@ -115,7 +115,12 @@ def _reset_scheduler_state() -> Generator[None]:
     scheduler._state.ingest_interval_enabled = True
 
 
-def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None = None) -> MagicMock:
+def _start_with_env(
+    monkeypatch: pytest.MonkeyPatch,
+    briefing_cron: str | None = None,
+    *,
+    legacy_briefing: bool = False,
+) -> MagicMock:
     """Run start_scheduler() with APScheduler mocked; return the mock scheduler."""
     mock_sched = MagicMock()
     mock_sched.get_job.return_value = None
@@ -124,6 +129,11 @@ def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None =
         monkeypatch.setenv("BRIEFING_CRON", briefing_cron)
     else:
         monkeypatch.delenv("BRIEFING_CRON", raising=False)
+
+    if legacy_briefing:
+        monkeypatch.setenv("LEGACY_GLOBAL_BRIEFING_ENABLED", "true")
+    else:
+        monkeypatch.delenv("LEGACY_GLOBAL_BRIEFING_ENABLED", raising=False)
 
     with (
         patch(_BGSCHED_PATH, return_value=mock_sched),
@@ -139,15 +149,33 @@ def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None =
     return mock_sched
 
 
-def test_start_scheduler_registers_briefing_job(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_scheduler_does_not_register_legacy_briefing_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mock_sched = _start_with_env(monkeypatch)
+    ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
+    assert "briefing" not in ids
+
+
+def test_start_scheduler_registers_legacy_briefing_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
     assert "briefing" in ids
 
 
+def test_start_scheduler_always_registers_per_user_briefings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch)
+    ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
+    assert "per_user_briefings" in ids
+
+
 def test_start_scheduler_briefing_default_cron(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default BRIEFING_CRON = '0 9 * * *' → hour='9', minute='0'."""
-    mock_sched = _start_with_env(monkeypatch, briefing_cron=None)
+    """Default BRIEFING_CRON = '0 9 * * *' → hour='9', minute='0' when legacy enabled."""
+    mock_sched = _start_with_env(monkeypatch, briefing_cron=None, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -156,8 +184,8 @@ def test_start_scheduler_briefing_default_cron(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_start_scheduler_briefing_custom_cron(monkeypatch: pytest.MonkeyPatch) -> None:
-    """BRIEFING_CRON='30 7 * * *' → hour='7', minute='30'."""
-    mock_sched = _start_with_env(monkeypatch, briefing_cron="30 7 * * *")
+    """BRIEFING_CRON='30 7 * * *' → hour='7', minute='30' when legacy enabled."""
+    mock_sched = _start_with_env(monkeypatch, briefing_cron="30 7 * * *", legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -166,7 +194,7 @@ def test_start_scheduler_briefing_custom_cron(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_start_scheduler_briefing_uses_cron_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_sched = _start_with_env(monkeypatch)
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -188,7 +216,7 @@ def test_start_scheduler_registers_analytics_retention_job(
 def test_start_scheduler_briefing_fn_is_run_briefing(monkeypatch: pytest.MonkeyPatch) -> None:
     from news_dashboard.scheduler import _run_briefing as expected_fn
 
-    mock_sched = _start_with_env(monkeypatch)
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -422,7 +450,7 @@ def test_start_scheduler_can_disable_only_interval_ingest(
 
     ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
     assert "ingest" not in ids
-    assert {"digest", "briefing", "recommendations", "per_user_briefings"} <= set(ids)
+    assert {"digest", "recommendations", "per_user_briefings"} <= set(ids)
 
     from news_dashboard import scheduler
 

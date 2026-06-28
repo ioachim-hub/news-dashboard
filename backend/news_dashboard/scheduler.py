@@ -246,15 +246,24 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    b_minute, b_hour = _parse_cron_hm(briefing_cron, "0", "9")
-    scheduler.add_job(
-        _run_briefing,
-        trigger="cron",
-        hour=b_hour,
-        minute=b_minute,
-        id="briefing",
-        replace_existing=True,
+    legacy_global_briefing_enabled = _env_flag_enabled(
+        "LEGACY_GLOBAL_BRIEFING_ENABLED", default=False
     )
+    b_minute, b_hour = _parse_cron_hm(briefing_cron, "0", "9")
+    if legacy_global_briefing_enabled:
+        scheduler.add_job(
+            _run_briefing,
+            trigger="cron",
+            hour=b_hour,
+            minute=b_minute,
+            id="briefing",
+            replace_existing=True,
+        )
+    else:
+        logger.info(
+            "Legacy global briefing job not registered; per-user briefings are the active path. "
+            "Set LEGACY_GLOBAL_BRIEFING_ENABLED=true to restore the old behaviour."
+        )
 
     r_minute, r_hour = _parse_cron_hm(recommendations_cron, "30", "7")
     scheduler.add_job(
@@ -292,15 +301,25 @@ def start_scheduler() -> None:
             logger.info("Scheduler started (ingest paused per saved settings).")
         except Exception:
             logger.exception("Failed to pause ingest job on startup")
-    else:
+    elif legacy_global_briefing_enabled:
         logger.info(
             "Scheduler started: ingest every %d min, digest at %s:%s UTC, "
-            "briefing at %s:%s UTC, recommendations at %s:%s UTC",
+            "legacy briefing at %s:%s UTC, recommendations at %s:%s UTC",
             interval_minutes,
             cron_hour.zfill(2),
             cron_minute.zfill(2),
             b_hour.zfill(2),
             b_minute.zfill(2),
+            r_hour.zfill(2),
+            r_minute.zfill(2),
+        )
+    else:
+        logger.info(
+            "Scheduler started: ingest every %d min, digest at %s:%s UTC, "
+            "per-user briefings active, recommendations at %s:%s UTC",
+            interval_minutes,
+            cron_hour.zfill(2),
+            cron_minute.zfill(2),
             r_hour.zfill(2),
             r_minute.zfill(2),
         )

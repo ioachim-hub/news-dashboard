@@ -57,6 +57,23 @@ const LANGUAGE_NAMES: Record<string, string> = {
 function renderBody(md: string): string {
   const escape = (s: string) =>
     s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  const decodeEscapedMarkdown = (s: string) =>
+    s
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  const safeHref = (rawHref: string): string | null => {
+    const href = decodeEscapedMarkdown(rawHref).trim();
+    if (!href || /[\s\p{Cc}]/u.test(href)) return null;
+
+    try {
+      const url = new URL(href);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+    } catch {
+      return null;
+    }
+  };
   const lines = md.split('\n');
   let html = '';
   let inCode = false;
@@ -74,7 +91,12 @@ function renderBody(md: string): string {
     s
       .replace(/`([^`]+)`/g, (_, t: string) => `<code>${escape(t)}</code>`)
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+      .replace(/\[([^\]]+)\]\((.+)\)/g, (_, label: string, rawHref: string) => {
+        const href = safeHref(rawHref);
+        return href
+          ? `<a href="${escape(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+          : label;
+      });
 
   for (const raw of lines) {
     if (raw.startsWith('```')) {

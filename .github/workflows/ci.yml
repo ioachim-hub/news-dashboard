@@ -239,7 +239,9 @@ jobs:
         run: helm lint ./helm/news-dashboard
 
       - name: helm template (defaults)
-        run: helm template news-dashboard ./helm/news-dashboard
+        run: |
+          helm template news-dashboard ./helm/news-dashboard \
+            --set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only"
 
       - name: helm template (production-like overrides)
         run: |
@@ -262,7 +264,8 @@ jobs:
         run: |
           helm template news-dashboard ./helm/news-dashboard \
             --set "postgresql.enabled=false" \
-            --set "app.databaseUrl.existingSecret=news-dashboard-db"
+            --set "app.databaseUrl.existingSecret=news-dashboard-db" \
+            --set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only"
 
   # ── 7. PUBLISH ─────────────────────────────────────────────────────────────
   # Builds one image and pushes two tags:

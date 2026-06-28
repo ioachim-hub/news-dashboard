@@ -83,16 +83,22 @@ jobs:
         run: ruff format --check backend
       - name: mypy
         run: mypy backend
+      - name: ty
+        run: ty check backend
+      - name: pyrefly
+        run: pyrefly check backend
 
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
           cache: npm
-      - run: npm install
+      - run: npm ci
       - name: eslint
         run: npm run lint --silent
       - name: prettier (format check)
         run: npm run format:check --silent
+      - name: TypeScript
+        run: npm run typecheck --silent
 
   # ── 2. SMOKE ───────────────────────────────────────────────────────────────
   # Always runs on PRs and manual dispatches. Fast: no Postgres, no coverage.
@@ -123,7 +129,7 @@ jobs:
         with:
           node-version: '26'
           cache: npm
-      - run: npm install
+      - run: npm ci
       - name: Frontend smoke tests
         run: |
           npm run test:frontend:smoke --silent
@@ -187,7 +193,7 @@ jobs:
         with:
           node-version: '26'
           cache: npm
-      - run: npm install
+      - run: npm ci
       - name: vitest (frontend tests)
         run: npm run test:frontend --silent
       - name: build (includes tsc)

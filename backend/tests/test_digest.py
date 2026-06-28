@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import psycopg
 import pytest
+from fastapi.testclient import TestClient
 
 from news_dashboard import digest
 
@@ -182,3 +183,118 @@ def test_send_digest_sends_when_new_articles_exist(pg_clean: str) -> None:
         send.assert_called_once()
         subject = send.call_args.args[0]
         assert "News Digest" in subject
+
+
+# ── HTML escaping ─────────────────────────────────────────────────────────────
+
+
+def test_render_html_escapes_script_in_title() -> None:
+    articles = [
+        {
+            "id": 1,
+            "title": "<script>alert(1)</script>",
+            "url": "https://example.com/1",
+            "source_name": "Src",
+            "summary": "ok",
+            "importance_score": 50,
+        }
+    ]
+    html = digest._render_html(articles)
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_render_html_escapes_quotes_in_url() -> None:
+    articles = [
+        {
+            "id": 2,
+            "title": "Title",
+            "url": 'https://example.com/?x="evil"',
+            "source_name": "Src",
+            "summary": "",
+            "importance_score": 0,
+        }
+    ]
+    html = digest._render_html(articles)
+    assert '"evil"' not in html
+
+
+def test_render_html_escapes_summary_and_source() -> None:
+    articles = [
+        {
+            "id": 3,
+            "title": "T",
+            "url": "https://example.com/",
+            "source_name": "<b>Bad Source</b>",
+            "summary": "<em>bad summary</em>",
+            "importance_score": 0,
+        }
+    ]
+    html = digest._render_html(articles)
+    assert "<b>" not in html
+    assert "<em>" not in html
+    assert "&lt;b&gt;" in html
+    assert "&lt;em&gt;" in html
+
+
+# ── Public token route (no session required) ──────────────────────────────────
+
+
+def _fresh_client() -> TestClient:
+    from news_dashboard.main import app
+
+    app.dependency_overrides.clear()
+    return TestClient(app, raise_server_exceptions=True)
+
+
+@pytest.mark.postgres
+def test_mark_read_via_token_succeeds_without_session(pg_clean: str) -> None:
+    import psycopg
+
+    with psycopg.connect(pg_clean) as conn:
+        conn.execute(
+            "INSERT INTO sources(slug, name, url, category, kind) VALUES (%s, %s, %s, %s, %s)",
+            ("src", "Src", "https://example.com/feed", "engineering", "rss"),
+        )
+        conn.execute(
+            """
+            INSERT INTO articles(
+                url, canonical_url, title, source_slug, source_name,
+                category, kind, status, importance_score, summary, reason, tags
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'new', 70, 'Sum', '', '')
+            """,
+            (
+                "https://example.com/a",
+                "https://example.com/a",
+                "Headline",
+                "src",
+                "Src",
+                "engineering",
+                "rss",
+            ),
+        )
+        row = conn.execute("SELECT id FROM articles LIMIT 1").fetchone()
+        assert row is not None
+        article_id: int = row[0]
+        conn.commit()
+
+    token = digest._make_token(article_id)
+    client = _fresh_client()
+    resp = client.get(f"/api/articles/{article_id}/read", params={"token": token}, cookies={})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "marked_read"
+
+
+@pytest.mark.postgres
+def test_mark_read_via_token_rejects_bad_token(pg_clean: str) -> None:
+    client = _fresh_client()
+    resp = client.get("/api/articles/999/read", params={"token": "badtoken"}, cookies={})
+    assert resp.status_code == 403
+
+
+@pytest.mark.postgres
+def test_mark_read_via_token_rejects_wrong_article_token(pg_clean: str) -> None:
+    token = digest._make_token(1)
+    client = _fresh_client()
+    resp = client.get("/api/articles/2/read", params={"token": token}, cookies={})
+    assert resp.status_code == 403

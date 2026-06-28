@@ -55,6 +55,12 @@ pythonpath = ["backend"]
 testpaths = ["backend/tests", "scripts"]
 addopts = "-ra --strict-markers --strict-config"
 filterwarnings = ["error::DeprecationWarning:news_dashboard.*"]
+markers = [
+  "smoke: fast, high-signal tests covering app boot, health, and core API paths (no external services required)",
+  "db: tests requiring a live PostgreSQL instance (testcontainers or CI service container)",
+  "slow: expensive or long-running tests reserved for the nightly suite",
+  "postgres: alias for db — marks tests that require a live PostgreSQL instance",
+]
 
 [tool.coverage.run]
 source = ["news_dashboard"]

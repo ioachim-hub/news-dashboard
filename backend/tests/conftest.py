@@ -39,11 +39,18 @@ if _env_file.exists():
 os.environ.setdefault("TEST_SESSION_SECRET", "test-secret-key-not-for-production")
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers",
-        "postgres: marks tests that require a live PostgreSQL instance",
-    )
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Auto-apply markers based on fixture usage.
+
+    Any test that requests ``pg_url`` or ``pg_clean`` is tagged ``db`` so
+    ``pytest -m "not db"`` reliably excludes all Postgres-dependent tests
+    without requiring manual marker decoration in every test file.
+    """
+    db_mark = pytest.mark.db
+    for item in items:
+        fixtures: list[str] = getattr(item, "fixturenames", [])
+        if "pg_url" in fixtures or "pg_clean" in fixtures:
+            item.add_marker(db_mark, append=True)
 
 
 _FAKE_ADMIN = {

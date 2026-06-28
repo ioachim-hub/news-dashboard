@@ -4,12 +4,23 @@ name: CI / CD
 # On push to main: also builds the Docker image, pushes it to GHCR, and
 # deploys to the mini PC via a self-hosted runner running directly on the machine.
 #
+# PR strategy: change-aware routing so small backend-only or frontend-only
+# changes don't run every unrelated test lane. Smoke tests always run.
+# Full suite runs on every push to main and on demand via workflow_dispatch.
+#
 # Branch is 'main'. If you rename it to 'master', update the two filters below.
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: 'Run the full test suite (backend + frontend + coverage)'
+        required: false
+        default: 'true'
+        type: boolean
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -25,8 +36,36 @@ permissions:
   models: read
 
 jobs:
+  # ── 0. DETECT CHANGES ──────────────────────────────────────────────────────
+  # Determine which parts of the codebase changed so later jobs can skip
+  # unrelated test lanes on pull requests.
+  detect-changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'pyproject.toml'
+              - 'scripts/**'
+            frontend:
+              - 'frontend/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'vite.config.ts'
+              - 'index.html'
+              - 'tsconfig*.json'
+
   # ── 1. LINT ────────────────────────────────────────────────────────────────
-  # Static analysis only — fails fast and in parallel with the test job.
+  # Static analysis only — fails fast and in parallel with the test jobs.
   lint:
     name: Lint & typecheck
     runs-on: ubuntu-latest
@@ -55,10 +94,51 @@ jobs:
       - name: prettier (format check)
         run: npm run format:check --silent
 
-  # ── 2. TEST ────────────────────────────────────────────────────────────────
-  test:
-    name: Test & build
+  # ── 2. SMOKE ───────────────────────────────────────────────────────────────
+  # Always runs on PRs and manual dispatches. Fast: no Postgres, no coverage.
+  # Covers app boot, health endpoints, and core frontend render paths.
+  smoke:
+    name: Smoke tests
     runs-on: ubuntu-latest
+    # Skip on push to main — the full test job already covers it.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - name: Backend smoke tests
+        run: |
+          COUNT=$(pytest -m smoke --collect-only -q 2>/dev/null | grep -c "::test_" || true)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: smoke test collection returned zero tests — check marker configuration" >&2
+            exit 1
+          fi
+          pytest -m smoke -v
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+      - run: npm install
+      - name: Frontend smoke tests
+        run: |
+          npm run test:frontend:smoke --silent
+
+  # ── 3. TEST (BACKEND) ──────────────────────────────────────────────────────
+  # On pull requests: runs only when backend files changed (or forced via dispatch).
+  # On push to main: always runs.
+  test-backend:
+    name: Backend tests
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.full_suite == 'true') ||
+      (github.event_name == 'pull_request' && needs.detect-changes.outputs.backend == 'true')
     services:
       postgres:
         image: postgres:16
@@ -81,12 +161,27 @@ jobs:
           python-version: '3.14'
           cache: pip
       - run: pip install -e '.[dev]'
-      - run: >
+      - name: Backend tests
+        run: >
           pytest -v --cov --cov-report=term-missing --durations=20
           -o faulthandler_timeout=120 -o faulthandler_exit_on_timeout=true
         env:
           DATABASE_URL: postgresql://news_dashboard:news_dashboard@127.0.0.1:5432/news_dashboard
           TEST_DATABASE_URL: postgresql://news_dashboard:news_dashboard@127.0.0.1:5432/news_dashboard
+
+  # ── 4. TEST (FRONTEND) ─────────────────────────────────────────────────────
+  # On pull requests: runs only when frontend files changed (or forced via dispatch).
+  # On push to main: always runs (includes build / tsc typecheck).
+  test-frontend:
+    name: Frontend tests & build
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.full_suite == 'true') ||
+      (github.event_name == 'pull_request' && needs.detect-changes.outputs.frontend == 'true')
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -95,9 +190,32 @@ jobs:
       - run: npm install
       - name: vitest (frontend tests)
         run: npm run test:frontend --silent
-      - run: npm run build   # includes tsc -b typecheck
+      - name: build (includes tsc)
+        run: npm run build
 
-  # ── 3. PUBLISH ─────────────────────────────────────────────────────────────
+  # ── 5. TEST ROLLUP ─────────────────────────────────────────────────────────
+  # Satisfies the "Test & build" required status check while the component jobs
+  # use the new change-aware names. Skips if either component job is skipped
+  # (both-skipped = no relevant files changed, so the check still passes).
+  test:
+    name: Test & build
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Aggregate test results
+        run: |
+          backend="${{ needs.test-backend.result }}"
+          frontend="${{ needs.test-frontend.result }}"
+          if [[ "$backend" == "failure" || "$backend" == "cancelled" ]]; then
+            echo "Backend tests failed or were cancelled ($backend)" && exit 1
+          fi
+          if [[ "$frontend" == "failure" || "$frontend" == "cancelled" ]]; then
+            echo "Frontend tests failed or were cancelled ($frontend)" && exit 1
+          fi
+          echo "All test lanes passed (backend=$backend, frontend=$frontend)"
+
+  # ── 6. PUBLISH ─────────────────────────────────────────────────────────────
   # Builds one image and pushes two tags:
   #   :<sha>    — immutable, pinned to this exact commit; used by the deploy step
   #   :latest   — floating convenience tag for manual pulls / rollback reference
@@ -204,7 +322,7 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
 
-  # ── 4. DEPLOY ──────────────────────────────────────────────────────────────
+  # ── 7. DEPLOY ──────────────────────────────────────────────────────────────
   # Runs directly on the self-hosted runner (the mini PC itself) — no SSH hop
   # needed. The runner process on the mini PC picks up the job and executes
   # the deploy commands locally.

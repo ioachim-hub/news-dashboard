@@ -11,7 +11,9 @@
     "format": "prettier --write frontend/src vite.config.ts index.html",
     "format:check": "prettier --check frontend/src vite.config.ts index.html",
     "test:frontend": "vitest run",
-    "test:frontend:coverage": "vitest run --coverage"
+    "test:frontend:smoke": "vitest run frontend/src/__tests__/appRouter.test.tsx frontend/src/__tests__/routing.test.tsx frontend/src/__tests__/navigation.test.ts frontend/src/__tests__/auth.test.tsx",
+    "test:frontend:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.13",

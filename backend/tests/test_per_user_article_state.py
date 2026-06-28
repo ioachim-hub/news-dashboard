@@ -163,11 +163,55 @@ def test_invalid_transition_raises(tmp_path: Path) -> None:
         transition_article_state(aid, "skipped", db_path=db, user_id=uid)
 
 
+def test_later_to_skipped_with_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid = _make_user(db)
+    aid = _insert_article(db)
+
+    send_article_later(aid, days=2, db_path=db, user_id=uid)
+    result = transition_article_state(aid, "skipped", db_path=db, user_id=uid)
+    assert result is not None
+    assert result["state"] == "skipped"
+    assert result["skipped_at"] is not None
+
+
+def test_later_to_skipped_is_per_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid_a = _make_user(db, "alice")
+    uid_b = _make_user(db, "bob")
+    aid = _insert_article(db)
+
+    # Both users snooze the article so both have a UAS row in 'later' state.
+    send_article_later(aid, days=2, db_path=db, user_id=uid_a)
+    send_article_later(aid, days=2, db_path=db, user_id=uid_b)
+
+    # Alice skips it from 'later'.
+    transition_article_state(aid, "skipped", db_path=db, user_id=uid_a)
+
+    skipped = list_articles(state="skipped", db_path=db, user_id=uid_a)
+    assert any(a["id"] == aid for a in skipped)
+
+    # Bob's view is unchanged — still in 'later'.
+    later = list_articles(state="later", db_path=db, user_id=uid_b)
+    assert any(a["id"] == aid for a in later)
+
+
 def test_starred_cannot_be_skipped(tmp_path: Path) -> None:
     db = _setup_db(tmp_path)
     uid = _make_user(db)
     aid = _insert_article(db)
 
+    set_article_starred(aid, True, db_path=db, user_id=uid)
+    with pytest.raises(ValueError, match="starred"):
+        transition_article_state(aid, "skipped", db_path=db, user_id=uid)
+
+
+def test_starred_later_cannot_be_skipped_with_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid = _make_user(db)
+    aid = _insert_article(db)
+
+    send_article_later(aid, days=2, db_path=db, user_id=uid)
     set_article_starred(aid, True, db_path=db, user_id=uid)
     with pytest.raises(ValueError, match="starred"):
         transition_article_state(aid, "skipped", db_path=db, user_id=uid)

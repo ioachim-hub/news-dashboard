@@ -112,7 +112,9 @@ def _run_briefing() -> None:
 
 
 def _run_per_user_briefings() -> None:
-    """Generate briefings for users whose scheduled time matches the current UTC HH:MM."""
+    """Generate briefings for users whose local scheduled time matches the current instant."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     from news_dashboard.briefings import (
         BriefingAINotConfiguredError,
         BriefingGenerationError,
@@ -122,18 +124,29 @@ def _run_per_user_briefings() -> None:
     from news_dashboard.push import generate_push_hook, send_push_for_user
 
     now = datetime.now(timezone.utc)
-    current_hm = now.strftime("%H:%M")
 
     try:
         with connect() as conn:
             rows = conn.execute(
-                "SELECT id FROM users WHERE briefing_time = %s",
-                (current_hm,),
+                "SELECT id, briefing_time, briefing_timezone FROM users"
+                " WHERE briefing_push_enabled = TRUE OR briefing_time IS NOT NULL",
             ).fetchall()
-        user_ids = [int(row_to_dict(r)["id"]) for r in rows]
+        user_rows = [row_to_dict(r) for r in rows]
     except Exception:
-        logger.exception("Per-user briefing: failed to query users for time %s", current_hm)
+        logger.exception("Per-user briefing: failed to query users")
         return
+
+    user_ids: list[int] = []
+    for row in user_rows:
+        tz_name: str = row.get("briefing_timezone") or "UTC"
+        briefing_time: str = row.get("briefing_time") or "09:00"
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, KeyError):
+            tz = ZoneInfo("UTC")
+        local_hm = now.astimezone(tz).strftime("%H:%M")
+        if local_hm == briefing_time:
+            user_ids.append(int(row["id"]))
 
     for user_id in user_ids:
         logger.info("Per-user briefing: generating for user_id=%s", user_id)

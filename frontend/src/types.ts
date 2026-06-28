@@ -289,12 +289,14 @@ export type BriefingCreateResponse = Briefing | { status: 'no_candidates' };
 
 export interface NotificationSettings {
   briefing_time: string;
+  briefing_timezone: string;
   push_enabled: boolean;
   vapid_public_key: string | null;
 }
 
 export interface NotificationSettingsUpdate {
   briefing_time?: string;
+  briefing_timezone?: string;
   push_enabled?: boolean;
 }
 

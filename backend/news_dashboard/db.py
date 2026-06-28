@@ -374,6 +374,7 @@ POSTGRES_MULTIUSER_SCHEMA = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_time TEXT DEFAULT '09:00'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_push_enabled"
     " BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_timezone TEXT NOT NULL DEFAULT 'UTC'",
     """
     CREATE TABLE IF NOT EXISTS user_push_subscriptions (
       id          SERIAL PRIMARY KEY,

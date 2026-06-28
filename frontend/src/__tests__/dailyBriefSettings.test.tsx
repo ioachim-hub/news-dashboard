@@ -39,6 +39,7 @@ function renderSettings() {
 
 const defaultSettings = {
   briefing_time: '09:00',
+  briefing_timezone: 'UTC',
   push_enabled: false,
   vapid_public_key: null as string | null,
 };
@@ -69,21 +70,21 @@ describe('DailyBriefSection', () => {
 
   it('shows the time loaded from settings', async () => {
     renderSettings();
-    const input = await screen.findByLabelText('Generation time (UTC)');
+    const input = await screen.findByLabelText('Generation time');
     expect(input).toHaveValue('09:00');
   });
 
   it('shows a custom time from settings', async () => {
     mockFetchSettings.mockResolvedValue({ ...defaultSettings, briefing_time: '07:30' });
     renderSettings();
-    const input = await screen.findByLabelText('Generation time (UTC)');
+    const input = await screen.findByLabelText('Generation time');
     expect(input).toHaveValue('07:30');
   });
 
   it('calls updateNotificationSettings on time input blur', async () => {
     const user = userEvent.setup();
     renderSettings();
-    const input = await screen.findByLabelText('Generation time (UTC)');
+    const input = await screen.findByLabelText('Generation time');
     await user.clear(input);
     await user.type(input, '08:00');
     await user.tab();
@@ -188,5 +189,43 @@ describe('DailyBriefSection', () => {
     expect(
       screen.getByText('Push notifications require server configuration (VAPID keys).')
     ).toBeInTheDocument();
+  });
+});
+
+describe('DailyBriefSection — timezone', () => {
+  it('shows timezone loaded from settings', async () => {
+    mockFetchSettings.mockResolvedValue({
+      ...defaultSettings,
+      briefing_timezone: 'Europe/Bucharest',
+    });
+    renderSettings();
+    const input = await screen.findByLabelText('Timezone');
+    expect(input).toHaveValue('Europe/Bucharest');
+  });
+
+  it('falls back to browser timezone when server returns UTC', async () => {
+    mockFetchSettings.mockResolvedValue({ ...defaultSettings, briefing_timezone: 'UTC' });
+    renderSettings();
+    const input = await screen.findByLabelText('Timezone');
+    expect(input).toHaveValue('UTC');
+  });
+
+  it('calls updateNotificationSettings with briefing_timezone on blur', async () => {
+    const user = userEvent.setup();
+    mockFetchSettings.mockResolvedValue({ ...defaultSettings, briefing_timezone: 'UTC' });
+    renderSettings();
+    const input = await screen.findByLabelText('Timezone');
+    await user.clear(input);
+    await user.type(input, 'America/New_York');
+    await user.tab();
+    await waitFor(() => {
+      expect(mockUpdateSettings).toHaveBeenCalledWith({ briefing_timezone: 'America/New_York' });
+    });
+  });
+
+  it('shows local-time wording without UTC suffix in label', async () => {
+    renderSettings();
+    await waitFor(() => expect(screen.getByLabelText('Generation time')).toBeInTheDocument());
+    expect(screen.queryByLabelText('Generation time (UTC)')).not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 .PHONY: install ci-install lint format typecheck \
-        test test-smoke test-backend test-frontend test-e2e test-nightly test-full \
+        test test-smoke test-backend test-frontend test-e2e test-a11y test-nightly test-full \
         helm-validate check build
 
 ## install: install backend (editable + dev tools) and update local frontend dependencies
@@ -56,6 +56,10 @@ test-frontend:
 ## test-e2e: Playwright end-to-end tests
 test-e2e:
 	npm run test:e2e --silent
+
+## test-a11y: accessibility smoke tests (axe-core serious/critical violations)
+test-a11y:
+	npm run test:a11y --silent
 
 ## test-nightly: full suite with coverage — same as what the nightly CI runs
 test-nightly:

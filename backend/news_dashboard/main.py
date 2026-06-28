@@ -1701,11 +1701,13 @@ def briefings_chat(
 # ── Notification settings & push subscriptions ───────────────────────────────
 
 _BRIEFING_TIME_RE = __import__("re").compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_NOTIFICATION_COLS = "briefing_time, briefing_push_enabled, briefing_timezone"
 
 
 class NotificationSettingsUpdate(BaseModel):
     briefing_time: str | None = None
     push_enabled: bool | None = None
+    briefing_timezone: str | None = None
 
 
 class PushSubscribeRequest(BaseModel):
@@ -1780,13 +1782,14 @@ def get_notification_settings(
     uid = current_user["id"]
     with connect() as conn:
         row = conn.execute(
-            "SELECT briefing_time, briefing_push_enabled FROM users WHERE id = %s",
+            f"SELECT {_NOTIFICATION_COLS} FROM users WHERE id = %s",
             (uid,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
     return {
         "briefing_time": row["briefing_time"] or "09:00",
+        "briefing_timezone": row["briefing_timezone"] or "UTC",
         "push_enabled": bool(row["briefing_push_enabled"]),
         "vapid_public_key": get_vapid_public_key(),
     }
@@ -1805,6 +1808,14 @@ def update_notification_settings(
         updates["briefing_time"] = payload.briefing_time
     if payload.push_enabled is not None:
         updates["briefing_push_enabled"] = payload.push_enabled
+    if payload.briefing_timezone is not None:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(payload.briefing_timezone)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise HTTPException(status_code=422, detail="unknown timezone") from None
+        updates["briefing_timezone"] = payload.briefing_timezone
     if updates:
         set_clauses = ", ".join(f"{k} = %s" for k in updates)
         with connect() as conn:
@@ -1814,13 +1825,14 @@ def update_notification_settings(
             )
     with connect() as conn:
         row = conn.execute(
-            "SELECT briefing_time, briefing_push_enabled FROM users WHERE id = %s",
+            f"SELECT {_NOTIFICATION_COLS} FROM users WHERE id = %s",
             (uid,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
     return {
         "briefing_time": row["briefing_time"] or "09:00",
+        "briefing_timezone": row["briefing_timezone"] or "UTC",
         "push_enabled": bool(row["briefing_push_enabled"]),
     }
 

@@ -359,6 +359,9 @@ type PushState = 'idle' | 'requesting' | 'subscribed' | 'denied' | 'unavailable'
 
 function DailyBriefSection() {
   const [briefingTime, setBriefingTime] = useState('09:00');
+  const [briefingTimezone, setBriefingTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
   const [pushEnabled, setPushEnabled] = useState(false);
   const [vapidKey, setVapidKey] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -372,6 +375,9 @@ function DailyBriefSection() {
         const s = await fetchNotificationSettings();
         if (!cancelled) {
           setBriefingTime(s.briefing_time);
+          setBriefingTimezone(
+            s.briefing_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+          );
           setPushEnabled(s.push_enabled);
           setVapidKey(s.vapid_public_key);
           if (s.push_enabled) setPushState('subscribed');
@@ -397,6 +403,15 @@ function DailyBriefSection() {
       // non-critical — time preference will resync on next load
     } finally {
       setTimeSaving(false);
+    }
+  };
+
+  const handleTimezoneBlur = async (tz: string) => {
+    if (!tz) return;
+    try {
+      await updateNotificationSettings({ briefing_timezone: tz });
+    } catch {
+      // non-critical
     }
   };
 
@@ -478,7 +493,7 @@ function DailyBriefSection() {
       <div className="rounded-lg border border-border bg-card p-4 space-y-4">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground" htmlFor="briefing-time">
-            Generation time (UTC)
+            Generation time
           </label>
           <div className="flex items-center gap-2">
             <input
@@ -492,7 +507,25 @@ function DailyBriefSection() {
             {timeSaving && <RefreshCw className="size-3 animate-spin text-muted-foreground" />}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Your brief will be generated automatically at this time each day.
+            Your brief will be generated automatically at this local time each day.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground" htmlFor="briefing-timezone">
+            Timezone
+          </label>
+          <input
+            id="briefing-timezone"
+            type="text"
+            value={briefingTimezone}
+            onChange={(e) => setBriefingTimezone(e.target.value)}
+            onBlur={(e) => void handleTimezoneBlur(e.target.value)}
+            placeholder="e.g. Europe/Bucharest"
+            className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            IANA timezone name (e.g. America/New_York). DST is applied automatically.
           </p>
         </div>
 

@@ -346,7 +346,11 @@ def test_get_notification_settings_returns_defaults(
 ) -> None:
     monkeypatch.setenv("VAPID_PUBLIC_KEY", "BExampleKey==")
 
-    fake_row: dict[str, Any] = {"briefing_time": "09:00", "briefing_push_enabled": False}
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": "UTC",
+    }
 
     with patch("news_dashboard.main.connect") as mock_connect:
         ctx = mock_connect.return_value.__enter__.return_value
@@ -357,12 +361,39 @@ def test_get_notification_settings_returns_defaults(
     assert resp.status_code == 200
     data = resp.json()
     assert data["briefing_time"] == "09:00"
+    assert data["briefing_timezone"] == "UTC"
     assert data["push_enabled"] is False
     assert data["vapid_public_key"] == "BExampleKey=="
 
 
+def test_get_notification_settings_utc_fallback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Users without a timezone value fall back to UTC."""
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", "BExampleKey==")
+
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": None,
+    }
+
+    with patch("news_dashboard.main.connect") as mock_connect:
+        ctx = mock_connect.return_value.__enter__.return_value
+        ctx.execute.return_value.fetchone.return_value = fake_row
+
+        resp = client.get("/api/settings/notifications")
+
+    assert resp.status_code == 200
+    assert resp.json()["briefing_timezone"] == "UTC"
+
+
 def test_put_notification_settings_valid_time(client: TestClient) -> None:
-    fake_row: dict[str, Any] = {"briefing_time": "08:30", "briefing_push_enabled": True}
+    fake_row: dict[str, Any] = {
+        "briefing_time": "08:30",
+        "briefing_push_enabled": True,
+        "briefing_timezone": "UTC",
+    }
 
     with patch("news_dashboard.main.connect") as mock_connect:
         ctx = mock_connect.return_value.__enter__.return_value
@@ -377,6 +408,31 @@ def test_put_notification_settings_valid_time(client: TestClient) -> None:
     data = resp.json()
     assert data["briefing_time"] == "08:30"
     assert data["push_enabled"] is True
+
+
+def test_put_notification_settings_valid_timezone(client: TestClient) -> None:
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": "Europe/Bucharest",
+    }
+
+    with patch("news_dashboard.main.connect") as mock_connect:
+        ctx = mock_connect.return_value.__enter__.return_value
+        ctx.execute.return_value.fetchone.return_value = fake_row
+
+        resp = client.put(
+            "/api/settings/notifications",
+            json={"briefing_timezone": "Europe/Bucharest"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["briefing_timezone"] == "Europe/Bucharest"
+
+
+def test_put_notification_settings_invalid_timezone(client: TestClient) -> None:
+    resp = client.put("/api/settings/notifications", json={"briefing_timezone": "Mars/Olympus"})
+    assert resp.status_code == 422
 
 
 def test_put_notification_settings_invalid_time(client: TestClient) -> None:

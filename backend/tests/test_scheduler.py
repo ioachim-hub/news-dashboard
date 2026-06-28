@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -739,3 +740,142 @@ def test_scheduler_status_reports_external_ingest_authority(
         "interval_ingest_enabled": False,
         "ingest_authority": "external",
     }
+
+
+# ── _run_per_user_briefings — timezone-aware matching ─────────────────────────
+
+# connect/row_to_dict/generate_briefing/push helpers are lazily imported inside
+# _run_per_user_briefings, so they must be patched at their source modules.
+_CONNECT_PATH = "news_dashboard.db.connect"
+_ROW_TO_DICT_PATH = "news_dashboard.db.row_to_dict"
+_PER_USER_GEN_PATH = "news_dashboard.briefings.generate_briefing"
+_SEND_PUSH_PATH = "news_dashboard.push.send_push_for_user"
+_GEN_PUSH_HOOK_PATH = "news_dashboard.push.generate_push_hook"
+
+
+def _mock_conn_for_rows(user_rows: list[dict[str, Any]]) -> MagicMock:
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.return_value.fetchall.return_value = user_rows
+    return mock_conn
+
+
+def test_per_user_briefings_utc_match() -> None:
+    """A user with UTC timezone triggers when UTC wall clock matches briefing_time."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 1, "briefing_time": "09:00", "briefing_timezone": "UTC"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=1)
+
+
+def test_per_user_briefings_utc_no_match() -> None:
+    """A UTC user is NOT triggered when the current UTC minute differs."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 10, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 1, "briefing_time": "09:00", "briefing_timezone": "UTC"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock()
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_not_called()
+
+
+def test_per_user_briefings_europe_bucharest_summer() -> None:
+    """Europe/Bucharest is UTC+3 in summer (EEST). 09:00 local = 06:00 UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    # 2026-06-29 06:00 UTC = 09:00 Europe/Bucharest (EEST, UTC+3)
+    now = datetime(2026, 6, 29, 6, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 42, "briefing_time": "09:00", "briefing_timezone": "Europe/Bucharest"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=42)
+
+
+def test_per_user_briefings_europe_bucharest_winter() -> None:
+    """Europe/Bucharest is UTC+2 in winter (EET). 09:00 local = 07:00 UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    # 2026-01-15 07:00 UTC = 09:00 Europe/Bucharest (EET, UTC+2)
+    now = datetime(2026, 1, 15, 7, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 42, "briefing_time": "09:00", "briefing_timezone": "Europe/Bucharest"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=42)
+
+
+def test_per_user_briefings_null_timezone_falls_back_to_utc() -> None:
+    """A user with NULL briefing_timezone is treated as UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 5, "briefing_time": "09:00", "briefing_timezone": None}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=5)

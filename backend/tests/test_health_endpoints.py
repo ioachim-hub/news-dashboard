@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from news_dashboard.main import app
@@ -16,6 +17,7 @@ def _client() -> TestClient:
     return TestClient(app, follow_redirects=False)
 
 
+@pytest.mark.smoke
 def test_live_returns_200_without_db() -> None:
     with patch("news_dashboard.main.connect") as mock_connect:
         resp = _client().get("/api/live")
@@ -24,6 +26,7 @@ def test_live_returns_200_without_db() -> None:
     mock_connect.assert_not_called()
 
 
+@pytest.mark.smoke
 def test_ready_returns_200_when_db_ok() -> None:
     @contextmanager
     def fake_connect() -> Iterator[object]:
@@ -39,6 +42,7 @@ def test_ready_returns_200_when_db_ok() -> None:
     assert resp.json() == {"status": "ok"}
 
 
+@pytest.mark.smoke
 def test_ready_returns_503_when_db_unavailable() -> None:
     @contextmanager
     def broken_connect() -> Iterator[object]:

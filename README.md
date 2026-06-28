@@ -126,10 +126,31 @@ Open [http://localhost:5173](http://localhost:5173).
 make lint        # ruff, eslint, prettier checks
 make format      # auto-format backend and frontend
 make typecheck   # mypy and TypeScript
-make test        # backend and frontend tests
+make test        # backend and frontend tests (everyday development loop)
 make build       # production frontend build
 make check       # full CI suite
 ```
+
+### Test lanes
+
+| Command | What it runs | When to use |
+|---|---|---|
+| `make test-smoke` | Backend `smoke`-marked tests + frontend smoke files | Quick sanity check, ~seconds |
+| `make test-backend` | Full `pytest` suite | Before pushing backend changes |
+| `make test-frontend` | Full Vitest suite | Before pushing frontend changes |
+| `make test-e2e` | Playwright end-to-end tests | Before pushing UI/routing changes |
+| `make test-full` | Everything with coverage | Same as nightly CI; use before major releases |
+
+**Local development loop:** run `make test-smoke` during active development, `make test-backend` or `make test-frontend` depending on what you changed, then `make check` before opening a PR.
+
+**Pre-push / pre-release:** run `make test-full` for comprehensive coverage including slow and DB-heavy tests.
+
+Pytest markers:
+- `smoke` — fast tests with no external services
+- `db` — auto-applied to any test using `pg_url` / `pg_clean`; requires PostgreSQL
+- `slow` — expensive tests reserved for the nightly schedule
+
+Run a specific lane with `pytest -m smoke`, `pytest -m "not db"`, or `pytest -m db`.
 
 ## Project Layout
 

@@ -85,7 +85,8 @@ helm-validate:
 		--set "postgresql.persistence.hostPath=/home/ioachim-minipc/news-dashboard-postgres-data"
 	helm template news-dashboard ./helm/news-dashboard \
 		--set "postgresql.enabled=false" \
-		--set "app.databaseUrl.existingSecret=news-dashboard-db"
+		--set "app.databaseUrl.existingSecret=news-dashboard-db" \
+		--set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only"
 
 ## check: everything CI runs — lint, typecheck, test, build
 check: lint typecheck test build

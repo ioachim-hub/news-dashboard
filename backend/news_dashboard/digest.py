@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import logging
 import os
 import smtplib
@@ -73,10 +74,10 @@ def _render_html(articles: list[dict[str, Any]]) -> str:
     for a in articles:
         token = _make_token(a["id"])
         mark_read_url = f"{base}/api/articles/{a['id']}/read?token={token}"
-        title = a.get("title") or "Untitled"
-        url = a.get("url") or "#"
-        source = a.get("source_name") or ""
-        summary = a.get("summary") or ""
+        title = html.escape(a.get("title") or "Untitled")
+        url = html.escape(a.get("url") or "#", quote=True)
+        source = html.escape(a.get("source_name") or "")
+        summary = html.escape(a.get("summary") or "")
         score = a.get("importance_score", 0)
         rows += f"""
         <tr>

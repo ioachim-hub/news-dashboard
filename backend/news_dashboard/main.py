@@ -379,6 +379,21 @@ def logout(response: Response) -> dict[str, str]:
     return {"status": "logged_out"}
 
 
+@public_router.get("/api/articles/{article_id}/read")
+def mark_read_via_token(article_id: int, token: Annotated[str, Query()]) -> dict[str, Any]:
+    from news_dashboard.digest import verify_read_token
+
+    if not verify_read_token(article_id, token):
+        raise HTTPException(status_code=403, detail="invalid or expired token")
+    try:
+        article = set_article_status(article_id, "read")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not article:
+        raise HTTPException(status_code=404, detail="article not found")
+    return {"status": "marked_read", "article": article}
+
+
 app.include_router(public_router)
 
 
@@ -858,21 +873,6 @@ def add_share_message(
     if get_share(share_id, current_user["id"]) is None:
         raise HTTPException(status_code=404, detail="Share not found")
     return add_message(share_id, current_user["id"], payload.message)
-
-
-@api.get("/api/articles/{article_id}/read")
-def mark_read_via_token(article_id: int, token: Annotated[str, Query()]) -> dict[str, Any]:
-    from news_dashboard.digest import verify_read_token
-
-    if not verify_read_token(article_id, token):
-        raise HTTPException(status_code=403, detail="invalid or expired token")
-    try:
-        article = set_article_status(article_id, "read")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not article:
-        raise HTTPException(status_code=404, detail="article not found")
-    return {"status": "marked_read", "article": article}
 
 
 INTEREST_GROUPS: tuple[dict[str, Any], ...] = (

@@ -107,6 +107,54 @@ describe('ArticlePage — rendering', () => {
       expect(screen.getByText('Listen')).toBeTruthy();
     });
   });
+
+  it('renders safe article body markdown links as external anchors', async () => {
+    const body = 'Read [the original report](https://example.org/report?from=reader&ok=1).';
+    const article = makeArticle({ body_status: 'ok', body });
+    vi.spyOn(api, 'fetchArticle').mockResolvedValue(article);
+    vi.spyOn(api, 'fetchArticleBody').mockResolvedValue(article);
+
+    renderReader('42', article);
+
+    const link = await screen.findByRole('link', { name: 'the original report' });
+    expect(link).toHaveAttribute('href', 'https://example.org/report?from=reader&ok=1');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('renders unsafe article body markdown links as plain text', async () => {
+    const body = [
+      '[run script](javascript:alert(1))',
+      '[data url](data:text/html,<script>alert(1)</script>)',
+      '[vbscript url](vbscript:msgbox(1))',
+      '[broken url](https://example.com/" onclick="alert(1))',
+    ].join('\n\n');
+    const article = makeArticle({ body_status: 'ok', body });
+    vi.spyOn(api, 'fetchArticle').mockResolvedValue(article);
+    vi.spyOn(api, 'fetchArticleBody').mockResolvedValue(article);
+
+    renderReader('42', article);
+
+    await screen.findByText('run script');
+    expect(screen.queryByRole('link', { name: 'run script' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'data url' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'vbscript url' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'broken url' })).toBeNull();
+  });
+
+  it('escapes article body markdown link labels and href attributes', async () => {
+    const body = '[<img src=x onerror=alert(1)>](https://example.org/report?quote="&tag=<tag>)';
+    const article = makeArticle({ body_status: 'ok', body });
+    vi.spyOn(api, 'fetchArticle').mockResolvedValue(article);
+    vi.spyOn(api, 'fetchArticleBody').mockResolvedValue(article);
+
+    renderReader('42', article);
+
+    const link = await screen.findByRole('link', { name: '<img src=x onerror=alert(1)>' });
+    expect(link.innerHTML).toBe('&lt;img src=x onerror=alert(1)&gt;');
+    expect(link).toHaveAttribute('href', 'https://example.org/report?quote=%22&tag=%3Ctag%3E');
+    expect(link).not.toHaveAttribute('onerror');
+  });
 });
 
 // ─── Open original link ───────────────────────────────────────────────────────

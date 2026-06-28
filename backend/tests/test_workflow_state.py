@@ -120,6 +120,29 @@ def test_later_to_archived(tmp_path: Path) -> None:
     assert updated["state"] == "archived"
 
 
+def test_later_to_skipped(tmp_path: Path) -> None:
+    db = tmp_path / "news.db"
+    sync_sources(db)
+    aid = _insert_article(db, state="later")
+    updated = transition_article_state(aid, "skipped", db_path=db)
+    assert updated is not None
+    assert updated["state"] == "skipped"
+    assert updated["skipped_at"] is not None
+
+
+def test_later_resnooze_updates_later_until(tmp_path: Path) -> None:
+    db = tmp_path / "news.db"
+    sync_sources(db)
+    aid = _insert_article(db, state="later")
+    updated = send_article_later(aid, days=3, db_path=db)
+    assert updated is not None
+    assert updated["state"] == "later"
+    assert updated["later_until"] is not None
+    until = datetime.fromisoformat(updated["later_until"])
+    delta = until - datetime.now(timezone.utc)
+    assert 2 < delta.total_seconds() / 3600 < 75
+
+
 def test_done_to_archived(tmp_path: Path) -> None:
     db = tmp_path / "news.db"
     sync_sources(db)
@@ -197,6 +220,14 @@ def test_starred_cannot_be_skipped(tmp_path: Path) -> None:
     db = tmp_path / "news.db"
     sync_sources(db)
     aid = _insert_article(db, state="today", starred=True)
+    with pytest.raises(ValueError, match="starred articles cannot be skipped"):
+        transition_article_state(aid, "skipped", db_path=db)
+
+
+def test_starred_later_cannot_be_skipped(tmp_path: Path) -> None:
+    db = tmp_path / "news.db"
+    sync_sources(db)
+    aid = _insert_article(db, state="later", starred=True)
     with pytest.raises(ValueError, match="starred articles cannot be skipped"):
         transition_article_state(aid, "skipped", db_path=db)
 

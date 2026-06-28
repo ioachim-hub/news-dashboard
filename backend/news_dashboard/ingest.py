@@ -58,6 +58,7 @@ _ALLOWED_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
         ("today", "archived"),
         ("later", "today"),
         ("later", "done"),
+        ("later", "skipped"),
         ("later", "archived"),
         ("done", "archived"),
         ("skipped", "today"),

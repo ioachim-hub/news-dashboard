@@ -1,0 +1,68 @@
+"""Verify ci.yml is wired for a GitHub merge queue (issue #566).
+
+A merge queue tests each PR on a temporary ``merge_group`` ref before it lands
+on ``main``. For the required checks to mean anything in the queue, CI must:
+
+1. trigger on ``merge_group`` events, and
+2. actually run the test lanes on those events — otherwise ``test-backend`` /
+   ``test-frontend`` skip and the ``Test & build`` rollup (``if: always()``)
+   reports a hollow green, merging untested code.
+
+Note: PyYAML (YAML 1.1) parses the bare mapping key ``on:`` as the boolean
+``True``, so the triggers live under ``data[True]``, not ``data["on"]``.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+
+REPO_ROOT = Path(__file__).parent.parent.parent
+CI_FILE = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+# Jobs that must run the suite when GitHub builds a merge group.
+_TEST_JOBS = ("test-backend", "test-frontend")
+
+
+def _load_ci() -> dict[Any, Any]:
+    data: dict[Any, Any] = yaml.safe_load(CI_FILE.read_text())
+    return data
+
+
+def _triggers(ci: dict[Any, Any]) -> dict[Any, Any]:
+    """Return the ``on:`` mapping, tolerating PyYAML's ``on`` -> ``True`` quirk."""
+    on = ci.get("on", ci.get(True))
+    assert isinstance(on, dict), f"ci.yml `on:` is not a mapping: {on!r}"
+    return on
+
+
+def test_ci_file_exists() -> None:
+    assert CI_FILE.exists(), f"ci.yml not found at {CI_FILE}"
+
+
+def test_ci_triggers_on_merge_group() -> None:
+    """The queue cannot run required checks unless CI listens for merge_group."""
+    on = _triggers(_load_ci())
+    assert "merge_group" in on, (
+        "ci.yml does not trigger on `merge_group`; a merge queue would never run "
+        "its required checks. Triggers present: " + ", ".join(map(str, on))
+    )
+
+
+def test_test_jobs_run_on_merge_group() -> None:
+    """test-backend/test-frontend must execute on merge_group, not skip.
+
+    If they skip, the `Test & build` rollup (`if: always()`) goes green without
+    running any tests — the queue would merge untested code.
+    """
+    jobs = _load_ci().get("jobs", {})
+    for job_name in _TEST_JOBS:
+        assert job_name in jobs, f"job `{job_name}` missing from ci.yml"
+        condition = str(jobs[job_name].get("if", ""))
+        assert "merge_group" in condition, (
+            f"job `{job_name}` does not run on merge_group events "
+            f"(its `if:` is {condition!r}); the merge queue would report a "
+            "hollow green for `Test & build`."
+        )

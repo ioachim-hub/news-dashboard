@@ -14,6 +14,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Merge queue: GitHub builds a temporary merge_group ref and waits for the
+  # required checks before landing the PR on main. The test lanes below treat
+  # merge_group like a push (full suite) so the queue gates on real results.
+  merge_group:
   workflow_dispatch:
     inputs:
       full_suite:
@@ -143,6 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'push' ||
+      github.event_name == 'merge_group' ||
       (github.event_name == 'workflow_dispatch' && inputs.full_suite == 'true') ||
       (github.event_name == 'pull_request' && needs.detect-changes.outputs.backend == 'true')
     services:
@@ -184,6 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'push' ||
+      github.event_name == 'merge_group' ||
       (github.event_name == 'workflow_dispatch' && inputs.full_suite == 'true') ||
       (github.event_name == 'pull_request' && needs.detect-changes.outputs.frontend == 'true')
     steps:

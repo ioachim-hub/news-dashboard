@@ -9,6 +9,7 @@ vi.mock('../api', () => ({
   fetchGoals: vi.fn(),
   fetchLatestQuiz: vi.fn(),
   fetchQuizCandidates: vi.fn(),
+  fetchQuizHistory: vi.fn(),
   fetchReadingDna: vi.fn(),
   fetchRecommendationPreferences: vi.fn(),
   createGoal: vi.fn(),
@@ -37,6 +38,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockedApi.fetchGoals.mockResolvedValue([]);
   mockedApi.fetchLatestQuiz.mockResolvedValue(null);
+  mockedApi.fetchQuizHistory.mockResolvedValue([]);
   mockedApi.fetchReadingDna.mockResolvedValue({
     range_days: 30,
     generated_at: '2026-06-27T00:00:00Z',

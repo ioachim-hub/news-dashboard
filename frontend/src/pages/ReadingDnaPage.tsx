@@ -230,6 +230,10 @@ function LearningCenter() {
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [quizError, setQuizError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
   const [newDescription, setNewDescription] = useState('');
   const [newKeywords, setNewKeywords] = useState('');
   const [addingGoal, setAddingGoal] = useState(false);
@@ -239,30 +243,36 @@ function LearningCenter() {
   const refreshQuizHistory = async () => {
     try {
       setQuizHistory(await fetchQuizHistory());
+      setHistoryError(null);
     } catch {
-      setQuizHistory([]);
+      setHistoryError('Failed to load quiz history.');
     }
   };
 
   useEffect(() => {
     fetchGoals()
-      .then(setGoals)
-      .catch(() => setGoals([]))
+      .then((g) => {
+        setGoals(g);
+        setGoalsError(null);
+      })
+      .catch(() => setGoalsError('Failed to load goals.'))
       .finally(() => setLoadingGoals(false));
     fetchLatestQuiz()
       .then((q) => {
         setQuiz(q);
+        setQuizError(null);
         if (q?.completed_result) {
           setResult(q.completed_result);
         }
       })
-      .catch(() => setQuiz(null))
+      .catch(() => setQuizError('Failed to load quiz.'))
       .finally(() => setLoadingQuiz(false));
     fetchQuizCandidates()
-      .then(setCandidates)
-      .catch(() => {
-        // leave candidates null so the default UI renders when the endpoint is unavailable
-      });
+      .then((c) => {
+        setCandidates(c);
+        setCandidatesError(null);
+      })
+      .catch(() => setCandidatesError('Failed to load quiz material.'));
     void refreshQuizHistory();
   }, []);
 
@@ -339,6 +349,8 @@ function LearningCenter() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3 animate-spin" /> Loading goals…
             </div>
+          ) : goalsError ? (
+            <p className="text-sm text-destructive">{goalsError}</p>
           ) : goals.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No goals yet. Add one to boost relevant articles.
@@ -421,6 +433,8 @@ function LearningCenter() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-3 animate-spin" /> Loading quiz…
           </div>
+        ) : quizError ? (
+          <p className="text-sm text-destructive">{quizError}</p>
         ) : result ? (
           <QuizResultView
             result={result}
@@ -446,30 +460,35 @@ function LearningCenter() {
           </div>
         ) : (
           <div className="space-y-3">
-            {candidates && candidates.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Quiz will draw from
-                </p>
-                <ul className="space-y-1">
-                  {candidates.slice(0, 5).map((c) => (
-                    <li key={c.id} className="flex items-start gap-2 text-xs">
-                      <span className="mt-0.5 shrink-0 text-muted-foreground">·</span>
-                      <span className="min-w-0">
-                        <span className="font-medium">{c.title}</span>
-                        {(c.source_name ?? c.category) && (
-                          <span className="ml-1 text-muted-foreground">
-                            {[c.source_name ?? null, c.category ?? null]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </span>
-                        )}
-                        {c.goal_matched && <span className="ml-1 text-primary">✓ goal</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            {candidatesError ? (
+              <p className="text-xs text-destructive">{candidatesError}</p>
+            ) : (
+              candidates &&
+              candidates.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Quiz will draw from
+                  </p>
+                  <ul className="space-y-1">
+                    {candidates.slice(0, 5).map((c) => (
+                      <li key={c.id} className="flex items-start gap-2 text-xs">
+                        <span className="mt-0.5 shrink-0 text-muted-foreground">·</span>
+                        <span className="min-w-0">
+                          <span className="font-medium">{c.title}</span>
+                          {(c.source_name ?? c.category) && (
+                            <span className="ml-1 text-muted-foreground">
+                              {[c.source_name ?? null, c.category ?? null]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          )}
+                          {c.goal_matched && <span className="ml-1 text-primary">✓ goal</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
             )}
             <p className="text-sm text-muted-foreground">
               No quiz yet. Generate one based on your recent reading.
@@ -502,7 +521,11 @@ function LearningCenter() {
         )}
       </Panel>
 
-      {quizHistory.length > 0 && <QuizHistoryPanel items={quizHistory} />}
+      {historyError ? (
+        <p className="text-sm text-destructive">{historyError}</p>
+      ) : (
+        quizHistory.length > 0 && <QuizHistoryPanel items={quizHistory} />
+      )}
     </div>
   );
 }

@@ -63,6 +63,16 @@ async function readErrorMessage(response: Response): Promise<string> {
   return `${response.status} ${response.statusText}`;
 }
 
+export class HttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -70,7 +80,7 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
     ...init,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw new HttpError(response.status, await readErrorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -543,8 +553,9 @@ export async function fetchQuizCandidates(): Promise<QuizCandidate[]> {
 export async function fetchLatestQuiz(): Promise<Quiz | null> {
   try {
     return await requestJson<Quiz>('/api/quizzes/latest');
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) return null;
+    throw err;
   }
 }
 

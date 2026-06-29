@@ -22,6 +22,18 @@ service:
   nodePort: ""
 
 app:
+  podSecurityContext:
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   postgresExternal:
     # Set host when postgresql.enabled is false to use an external PostgreSQL.
     host: ""
@@ -85,6 +97,18 @@ app:
 
 ingestCronJob:
   enabled: true
+  podSecurityContext:
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
   schedule: "17 */6 * * *"
   # Keep private single-node ingestion serialized; skip new runs while one is active.
   concurrencyPolicy: Forbid
@@ -111,6 +135,14 @@ ingestCronJob:
 postgresql:
   enabled: true
   image: postgres:16-alpine
+  podSecurityContext:
+    fsGroup: 999
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
   database: news_dashboard
   username: news_dashboard
   # Internal cluster password. Override in real environments.

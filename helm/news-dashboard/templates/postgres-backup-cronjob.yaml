@@ -20,10 +20,14 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          securityContext:
+{{ toYaml .Values.postgresql.podSecurityContext | indent 12 }}
           containers:
             - name: postgres-backup
               image: {{ .Values.postgresql.image | quote }}
               imagePullPolicy: IfNotPresent
+              securityContext:
+{{ toYaml .Values.postgresql.containerSecurityContext | indent 16 }}
               env:
                 - name: PGHOST
                   value: {{ printf "%s-postgres" (include "news-dashboard.fullname" .) | quote }}

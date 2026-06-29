@@ -34,11 +34,13 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       securityContext:
-        fsGroup: 999
+{{ toYaml .Values.postgresql.podSecurityContext | indent 8 }}
       containers:
         - name: postgres
           image: {{ .Values.postgresql.image | quote }}
           imagePullPolicy: IfNotPresent
+          securityContext:
+{{ toYaml .Values.postgresql.containerSecurityContext | indent 12 }}
           ports:
             - name: postgres
               containerPort: {{ .Values.postgresql.port }}

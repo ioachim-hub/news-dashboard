@@ -26,7 +26,7 @@ spec:
         spec:
           restartPolicy: OnFailure
           securityContext:
-            fsGroup: 1000
+{{ toYaml .Values.ingestCronJob.podSecurityContext | indent 12 }}
           {{- if .Values.image.pullSecretName }}
           imagePullSecrets:
             - name: {{ .Values.image.pullSecretName | quote }}
@@ -36,9 +36,7 @@ spec:
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               securityContext:
-                runAsNonRoot: true
-                runAsUser: 1000
-                runAsGroup: 1000
+{{ toYaml .Values.ingestCronJob.containerSecurityContext | indent 16 }}
               command: ["news-dashboard", "scheduled-ingest"]
               {{- with .Values.ingestCronJob.resources }}
               resources:
@@ -93,4 +91,10 @@ spec:
   {{- end }}
 {{- end }}
 {{ include "news-dashboard.aiEnv" . | indent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
 {{- end }}

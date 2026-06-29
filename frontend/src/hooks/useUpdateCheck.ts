@@ -82,7 +82,7 @@ export function useUpdateCheck() {
       if (!release) {
         setInfo({
           currentVersion: isTwa ? null : serverVersion,
-          latestVersion: isTwa ? '0.0.0' : (serverVersion as string),
+          latestVersion: isTwa ? '0.0.0' : serverVersion!,
           updateAvailable: false,
           releaseUrl: `https://github.com/${GH_REPO}/releases`,
           apkUrl: null,
@@ -99,7 +99,7 @@ export function useUpdateCheck() {
       // Android release with an APK asset as an available update.
       const updateAvailable = isTwa
         ? apkAsset !== null
-        : compareVersions(latestVersion, serverVersion as string) > 0;
+        : compareVersions(latestVersion, serverVersion!) > 0;
 
       setInfo({
         currentVersion: isTwa ? null : serverVersion,

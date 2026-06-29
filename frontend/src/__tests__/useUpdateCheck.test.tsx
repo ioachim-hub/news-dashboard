@@ -157,7 +157,7 @@ describe('useUpdateCheck — TWA flow', () => {
       await result.current.check();
     });
     const calls = vi.mocked(fetch).mock.calls as [string][];
-    const versionCalls = calls.filter(([url]) => (url as string).includes('/api/version'));
+    const versionCalls = calls.filter(([url]) => url.includes('/api/version'));
     expect(versionCalls).toHaveLength(0);
   });
 });

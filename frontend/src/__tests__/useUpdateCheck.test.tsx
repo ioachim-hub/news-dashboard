@@ -103,8 +103,9 @@ describe('useUpdateCheck — TWA flow', () => {
     expect(result.current.info?.currentVersion).toBeNull();
     expect(result.current.info?.installedVersionKnown).toBe(false);
     // The API should NOT have called /api/version for TWA
-    expect(vi.mocked(fetch).mock.calls.filter(([url]) => (url as string).includes('/api/version')))
-      .toHaveLength(0);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => (url as string).includes('/api/version'))
+    ).toHaveLength(0);
   });
 
   it('reports no update when no matching Android release exists', async () => {

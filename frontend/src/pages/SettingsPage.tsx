@@ -185,8 +185,8 @@ function UpdatesSection() {
               {info.apkUrl ? (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Version <span className="font-mono">{info.latestVersion}</span> is available
-                    for download.
+                    Version <span className="font-mono">{info.latestVersion}</span> is available for
+                    download.
                   </p>
                   <div className="space-y-1.5">
                     <a
@@ -197,8 +197,7 @@ function UpdatesSection() {
                       Download APK
                     </a>
                     <p className="text-[11px] text-subtle">
-                      Android will prompt you to confirm the install — tap Install when it
-                      appears.
+                      Android will prompt you to confirm the install — tap Install when it appears.
                     </p>
                   </div>
                 </>

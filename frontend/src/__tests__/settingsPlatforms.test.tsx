@@ -173,9 +173,7 @@ describe('SettingsPage on TWA', () => {
   it('shows "App version: Unknown" for TWA', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() =>
-        Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
-      )
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve([]) }))
     );
     renderSettings();
     fireEvent.click(screen.getByText('Check for updates'));

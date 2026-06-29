@@ -440,6 +440,16 @@ POSTGRES_MULTIUSER_SCHEMA = [
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS original_title TEXT",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS original_body TEXT",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS detected_lang VARCHAR(5) DEFAULT 'en'",
+    """
+    CREATE TABLE IF NOT EXISTS user_otps (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      otp_hash   TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_user_otps_user ON user_otps(user_id, expires_at DESC)",
 ]
 
 

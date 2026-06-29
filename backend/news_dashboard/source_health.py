@@ -55,11 +55,22 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def list_source_health(db_path: Path | str | None = None) -> list[dict[str, Any]]:
-    init_db(db_path)
-    with connect(db_path) as conn:
+def list_source_health(
+    db_path: Path | str | None = None,
+    *,
+    user_id: int | None = None,
+    database_url: str | None = None,
+) -> list[dict[str, Any]]:
+    init_db(db_path, database_url=database_url)
+    with connect(db_path, database_url=database_url) as conn:
         source_rows = conn.execute(
-            "SELECT * FROM sources ORDER BY category, priority DESC, name"
+            """
+            SELECT * FROM sources
+            WHERE owner_user_id IS NULL
+               OR (%s::integer IS NULL OR owner_user_id = %s)
+            ORDER BY category, priority DESC, name
+            """,
+            (user_id, user_id),
         ).fetchall()
         run_rows = conn.execute(
             """

@@ -1270,8 +1270,10 @@ def delete_source(
 
 
 @api.get("/api/sources/health")
-def sources_health() -> dict[str, Any]:
-    return {"items": list_source_health()}
+def sources_health(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    return {"items": list_source_health(user_id=int(current_user["id"]))}
 
 
 @api.get("/api/sources/cleanup-suggestions")

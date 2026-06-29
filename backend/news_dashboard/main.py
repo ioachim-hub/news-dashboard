@@ -67,7 +67,7 @@ from news_dashboard.ingest import (
     get_user_summary,
     ingest_all,
     list_articles,
-    search_articles,
+    search_articles_page,
     send_article_later,
     set_article_starred,
     set_article_status,
@@ -546,6 +546,7 @@ def search(  # noqa: PLR0913
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
     q: Annotated[str, Query(description="Space-separated search terms")] = "",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
     states: Annotated[list[str] | None, Query()] = None,
     categories: Annotated[list[str] | None, Query()] = None,
     sources: Annotated[list[str] | None, Query()] = None,
@@ -553,19 +554,18 @@ def search(  # noqa: PLR0913
     include_archived: Annotated[bool, Query()] = False,
     date_range: Annotated[str, Query()] = "all",
 ) -> dict[str, Any]:
-    return {
-        "items": search_articles(
-            q=q.strip(),
-            limit=limit,
-            states=states,
-            categories=categories,
-            sources=sources,
-            starred_only=starred_only,
-            include_archived=include_archived,
-            date_range=date_range,
-            user_id=current_user["id"],
-        )
-    }
+    return search_articles_page(
+        q=q.strip(),
+        limit=limit,
+        offset=offset,
+        states=states,
+        categories=categories,
+        sources=sources,
+        starred_only=starred_only,
+        include_archived=include_archived,
+        date_range=date_range,
+        user_id=current_user["id"],
+    )
 
 
 @api.get("/api/articles/topic-map")

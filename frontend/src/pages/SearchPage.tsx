@@ -1,6 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Search as SearchIcon } from 'lucide-react';
 import { ArticleRow } from '@/components/article/ArticleRow';
 import { EmptyState } from '@/components/EmptyState';
@@ -39,6 +39,8 @@ const DATE_OPTIONS: { value: string; label: string }[] = [
   { value: 'week', label: 'Past week' },
   { value: 'month', label: 'Past month' },
 ];
+
+const SEARCH_PAGE_SIZE = 100;
 
 // ─── URL state helpers ────────────────────────────────────────────────────────
 
@@ -131,9 +133,9 @@ export function SearchPage() {
     staleTime: 5 * 60_000,
   });
 
-  const { data: results = [], isLoading } = useQuery({
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['search', q, states, categories, sources, starredOnly, includeArchived, dateRange],
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       searchArticlesFiltered({
         q,
         states: states.length ? states : undefined,
@@ -142,11 +144,20 @@ export function SearchPage() {
         starredOnly,
         includeArchived,
         dateRange: (dateRange || 'all') as 'all' | 'today' | 'week' | 'month',
-        limit: 100,
+        limit: SEARCH_PAGE_SIZE,
+        offset: pageParam,
       }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.hasMore) return undefined;
+      return lastPage.offset + lastPage.items.length;
+    },
     enabled: !!hasFilters,
     staleTime: 30_000,
   });
+  const pages = data?.pages ?? [];
+  const results = pages.flatMap((page) => page.items);
+  const total = pages[0]?.total ?? 0;
 
   useEffect(() => {
     setReaderList(results.map((a) => a.id));
@@ -246,7 +257,9 @@ export function SearchPage() {
       {/* Result count */}
       {hasFilters && (
         <div className="px-4 md:px-5 py-2 text-[11px] text-muted-foreground border-b border-border">
-          {isLoading ? '…' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
+          {isLoading
+            ? '...'
+            : `${results.length} of ${total} ${total === 1 ? 'result' : 'results'}`}
         </div>
       )}
 
@@ -270,6 +283,18 @@ export function SearchPage() {
           {results.map((a, i) => (
             <ArticleRow key={a.id} article={a} focused={i === focused} />
           ))}
+          {hasNextPage && (
+            <div className="px-4 md:px-5 py-3 border-t border-border">
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="h-8 px-3 rounded-md border border-border bg-surface text-xs font-medium text-foreground hover:border-border-strong disabled:opacity-60"
+              >
+                {isFetchingNextPage ? 'Loading...' : 'Load more'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

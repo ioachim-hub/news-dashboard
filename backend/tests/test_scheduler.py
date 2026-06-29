@@ -7,18 +7,39 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Generator
+from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from news_dashboard.briefings import BriefingAINotConfiguredError, BriefingGenerationError
-from news_dashboard.scheduler import _run_briefing
+from news_dashboard.scheduler import _run_briefing, _run_per_user_briefings
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 # _run_briefing does `from .briefings import generate_briefing` lazily,
 # so the correct patch target is the briefings module itself.
 _GEN_PATH = "news_dashboard.briefings.generate_briefing"
+
+
+class _FakeRowsConn:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+        self.sql = ""
+
+    def __enter__(self) -> _FakeRowsConn:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def execute(self, sql: str, _params: tuple[object, ...] | None = None) -> _FakeRowsConn:
+        self.sql = sql
+        return self
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self.rows
 
 
 # ── _run_briefing — happy path ────────────────────────────────────────────────
@@ -94,6 +115,66 @@ def test_run_briefing_logs_generation_error(caplog: pytest.LogCaptureFixture) ->
     assert any(r.levelno >= logging.ERROR for r in caplog.records)
 
 
+# ── _run_per_user_briefings ──────────────────────────────────────────────────
+
+
+def test_run_per_user_briefings_sends_push_when_enabled() -> None:
+    fake_conn = _FakeRowsConn(
+        [
+            {
+                "id": 42,
+                "briefing_time": "09:00",
+                "briefing_timezone": "UTC",
+                "briefing_push_enabled": True,
+            }
+        ]
+    )
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch("news_dashboard.db.connect", return_value=fake_conn),
+        patch(_GEN_PATH, return_value={"id": 7, "status": "complete"}) as generate,
+        patch("news_dashboard.push.generate_push_hook", return_value="Brief ready") as hook,
+        patch("news_dashboard.push.send_push_for_user") as send_push,
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    assert "briefing_push_enabled" in fake_conn.sql
+    generate.assert_called_once_with(user_id=42)
+    hook.assert_called_once_with({"id": 7, "status": "complete"})
+    send_push.assert_called_once_with(42, "Brief ready", "", target_url="/briefs/7")
+
+
+def test_run_per_user_briefings_generates_but_skips_push_when_disabled() -> None:
+    fake_conn = _FakeRowsConn(
+        [
+            {
+                "id": 42,
+                "briefing_time": "09:00",
+                "briefing_timezone": "UTC",
+                "briefing_push_enabled": False,
+            }
+        ]
+    )
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch("news_dashboard.db.connect", return_value=fake_conn),
+        patch(_GEN_PATH, return_value={"id": 7, "status": "complete"}) as generate,
+        patch("news_dashboard.push.generate_push_hook") as hook,
+        patch("news_dashboard.push.send_push_for_user") as send_push,
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    generate.assert_called_once_with(user_id=42)
+    hook.assert_not_called()
+    send_push.assert_not_called()
+
+
 # ── start_scheduler — BRIEFING_CRON wiring ───────────────────────────────────
 
 # All three lazy imports in start_scheduler() must be patched at their source:
@@ -115,7 +196,12 @@ def _reset_scheduler_state() -> Generator[None]:
     scheduler._state.ingest_interval_enabled = True
 
 
-def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None = None) -> MagicMock:
+def _start_with_env(
+    monkeypatch: pytest.MonkeyPatch,
+    briefing_cron: str | None = None,
+    *,
+    legacy_briefing: bool = False,
+) -> MagicMock:
     """Run start_scheduler() with APScheduler mocked; return the mock scheduler."""
     mock_sched = MagicMock()
     mock_sched.get_job.return_value = None
@@ -124,6 +210,11 @@ def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None =
         monkeypatch.setenv("BRIEFING_CRON", briefing_cron)
     else:
         monkeypatch.delenv("BRIEFING_CRON", raising=False)
+
+    if legacy_briefing:
+        monkeypatch.setenv("LEGACY_GLOBAL_BRIEFING_ENABLED", "true")
+    else:
+        monkeypatch.delenv("LEGACY_GLOBAL_BRIEFING_ENABLED", raising=False)
 
     with (
         patch(_BGSCHED_PATH, return_value=mock_sched),
@@ -139,15 +230,33 @@ def _start_with_env(monkeypatch: pytest.MonkeyPatch, briefing_cron: str | None =
     return mock_sched
 
 
-def test_start_scheduler_registers_briefing_job(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_scheduler_does_not_register_legacy_briefing_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mock_sched = _start_with_env(monkeypatch)
+    ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
+    assert "briefing" not in ids
+
+
+def test_start_scheduler_registers_legacy_briefing_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
     assert "briefing" in ids
 
 
+def test_start_scheduler_always_registers_per_user_briefings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch)
+    ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
+    assert "per_user_briefings" in ids
+
+
 def test_start_scheduler_briefing_default_cron(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default BRIEFING_CRON = '0 9 * * *' → hour='9', minute='0'."""
-    mock_sched = _start_with_env(monkeypatch, briefing_cron=None)
+    """Default BRIEFING_CRON = '0 9 * * *' → hour='9', minute='0' when legacy enabled."""
+    mock_sched = _start_with_env(monkeypatch, briefing_cron=None, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -156,8 +265,8 @@ def test_start_scheduler_briefing_default_cron(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_start_scheduler_briefing_custom_cron(monkeypatch: pytest.MonkeyPatch) -> None:
-    """BRIEFING_CRON='30 7 * * *' → hour='7', minute='30'."""
-    mock_sched = _start_with_env(monkeypatch, briefing_cron="30 7 * * *")
+    """BRIEFING_CRON='30 7 * * *' → hour='7', minute='30' when legacy enabled."""
+    mock_sched = _start_with_env(monkeypatch, briefing_cron="30 7 * * *", legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -166,7 +275,7 @@ def test_start_scheduler_briefing_custom_cron(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_start_scheduler_briefing_uses_cron_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_sched = _start_with_env(monkeypatch)
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -185,10 +294,10 @@ def test_start_scheduler_registers_analytics_retention_job(
     assert retention_call.kwargs["minute"] == "0"
 
 
-def test_start_scheduler_briefing_fn_is_run_briefing(monkeypatch: pytest.MonkeyPatch) -> None:
-    from news_dashboard.scheduler import _run_briefing as expected_fn
+def test_start_scheduler_briefing_fn_is_job_briefing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from news_dashboard.scheduler import _job_briefing as expected_fn
 
-    mock_sched = _start_with_env(monkeypatch)
+    mock_sched = _start_with_env(monkeypatch, legacy_briefing=True)
     briefing_call = next(
         c for c in mock_sched.add_job.call_args_list if c.kwargs.get("id") == "briefing"
     )
@@ -200,9 +309,13 @@ def test_start_scheduler_briefing_fn_is_run_briefing(monkeypatch: pytest.MonkeyP
 
 def test_run_ingest_prefetches_when_new_articles() -> None:
     from news_dashboard import scheduler
+    from news_dashboard.ingest import IngestResult
 
     with (
-        patch("news_dashboard.ingest.ingest_all", return_value={"a": 2, "b": -1}) as ingest,
+        patch(
+            "news_dashboard.ingest.ingest_all",
+            return_value=IngestResult(results={"a": 2, "b": -1}, run_id=1, total_errors=1),
+        ) as ingest,
         patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
         patch.object(scheduler, "_run_recommendation_recalc") as recalc,
     ):
@@ -215,9 +328,13 @@ def test_run_ingest_prefetches_when_new_articles() -> None:
 
 def test_run_scheduled_ingest_returns_results_and_runs_maintenance() -> None:
     from news_dashboard import scheduler
+    from news_dashboard.ingest import IngestResult
 
     with (
-        patch("news_dashboard.ingest.ingest_all", return_value={"a": 2, "b": -1}) as ingest,
+        patch(
+            "news_dashboard.ingest.ingest_all",
+            return_value=IngestResult(results={"a": 2, "b": -1}, run_id=1, total_errors=1),
+        ) as ingest,
         patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
         patch.object(scheduler, "_run_recommendation_recalc") as recalc,
     ):
@@ -231,9 +348,13 @@ def test_run_scheduled_ingest_returns_results_and_runs_maintenance() -> None:
 
 def test_run_ingest_skips_prefetch_when_no_new_articles() -> None:
     from news_dashboard import scheduler
+    from news_dashboard.ingest import IngestResult
 
     with (
-        patch("news_dashboard.ingest.ingest_all", return_value={"a": 0}),
+        patch(
+            "news_dashboard.ingest.ingest_all",
+            return_value=IngestResult(results={"a": 0}, run_id=1, total_errors=0),
+        ),
         patch("news_dashboard.body_fetch.prefetch_article_bodies") as prefetch,
         patch.object(scheduler, "_run_recommendation_recalc"),
     ):
@@ -422,7 +543,7 @@ def test_start_scheduler_can_disable_only_interval_ingest(
 
     ids = [c.kwargs.get("id") for c in mock_sched.add_job.call_args_list]
     assert "ingest" not in ids
-    assert {"digest", "briefing", "recommendations", "per_user_briefings"} <= set(ids)
+    assert {"digest", "recommendations", "per_user_briefings"} <= set(ids)
 
     from news_dashboard import scheduler
 
@@ -711,3 +832,142 @@ def test_scheduler_status_reports_external_ingest_authority(
         "interval_ingest_enabled": False,
         "ingest_authority": "external",
     }
+
+
+# ── _run_per_user_briefings — timezone-aware matching ─────────────────────────
+
+# connect/row_to_dict/generate_briefing/push helpers are lazily imported inside
+# _run_per_user_briefings, so they must be patched at their source modules.
+_CONNECT_PATH = "news_dashboard.db.connect"
+_ROW_TO_DICT_PATH = "news_dashboard.db.row_to_dict"
+_PER_USER_GEN_PATH = "news_dashboard.briefings.generate_briefing"
+_SEND_PUSH_PATH = "news_dashboard.push.send_push_for_user"
+_GEN_PUSH_HOOK_PATH = "news_dashboard.push.generate_push_hook"
+
+
+def _mock_conn_for_rows(user_rows: list[dict[str, Any]]) -> MagicMock:
+    mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.execute.return_value.fetchall.return_value = user_rows
+    return mock_conn
+
+
+def test_per_user_briefings_utc_match() -> None:
+    """A user with UTC timezone triggers when UTC wall clock matches briefing_time."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 1, "briefing_time": "09:00", "briefing_timezone": "UTC"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=1)
+
+
+def test_per_user_briefings_utc_no_match() -> None:
+    """A UTC user is NOT triggered when the current UTC minute differs."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 10, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 1, "briefing_time": "09:00", "briefing_timezone": "UTC"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock()
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_not_called()
+
+
+def test_per_user_briefings_europe_bucharest_summer() -> None:
+    """Europe/Bucharest is UTC+3 in summer (EEST). 09:00 local = 06:00 UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    # 2026-06-29 06:00 UTC = 09:00 Europe/Bucharest (EEST, UTC+3)
+    now = datetime(2026, 6, 29, 6, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 42, "briefing_time": "09:00", "briefing_timezone": "Europe/Bucharest"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=42)
+
+
+def test_per_user_briefings_europe_bucharest_winter() -> None:
+    """Europe/Bucharest is UTC+2 in winter (EET). 09:00 local = 07:00 UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    # 2026-01-15 07:00 UTC = 09:00 Europe/Bucharest (EET, UTC+2)
+    now = datetime(2026, 1, 15, 7, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 42, "briefing_time": "09:00", "briefing_timezone": "Europe/Bucharest"}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=42)
+
+
+def test_per_user_briefings_null_timezone_falls_back_to_utc() -> None:
+    """A user with NULL briefing_timezone is treated as UTC."""
+    from datetime import datetime, timezone
+
+    from news_dashboard.scheduler import _run_per_user_briefings
+
+    now = datetime(2026, 6, 29, 9, 0, 0, tzinfo=timezone.utc)
+    user_rows = [{"id": 5, "briefing_time": "09:00", "briefing_timezone": None}]
+    mock_conn = _mock_conn_for_rows(user_rows)
+    mock_generate = MagicMock(return_value={"id": 1, "status": "complete"})
+
+    with (
+        patch("news_dashboard.scheduler.datetime") as mock_dt,
+        patch(_CONNECT_PATH, return_value=mock_conn),
+        patch(_PER_USER_GEN_PATH, mock_generate),
+        patch(_SEND_PUSH_PATH),
+        patch(_GEN_PUSH_HOOK_PATH, return_value="Brief ready"),
+    ):
+        mock_dt.now.return_value = now
+        _run_per_user_briefings()
+
+    mock_generate.assert_called_once_with(user_id=5)

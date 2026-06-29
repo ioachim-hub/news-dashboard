@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import type { Theme } from '@/lib/theme';
 import { useUpdateCheck } from '@/hooks/useUpdateCheck';
 import {
+  downloadUserExport,
   fetchNotificationSettings,
   recalculateMyRecommendations,
   subscribePush,
@@ -358,6 +359,9 @@ type PushState = 'idle' | 'requesting' | 'subscribed' | 'denied' | 'unavailable'
 
 function DailyBriefSection() {
   const [briefingTime, setBriefingTime] = useState('09:00');
+  const [briefingTimezone, setBriefingTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
   const [pushEnabled, setPushEnabled] = useState(false);
   const [vapidKey, setVapidKey] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -371,6 +375,9 @@ function DailyBriefSection() {
         const s = await fetchNotificationSettings();
         if (!cancelled) {
           setBriefingTime(s.briefing_time);
+          setBriefingTimezone(
+            s.briefing_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone
+          );
           setPushEnabled(s.push_enabled);
           setVapidKey(s.vapid_public_key);
           if (s.push_enabled) setPushState('subscribed');
@@ -396,6 +403,15 @@ function DailyBriefSection() {
       // non-critical — time preference will resync on next load
     } finally {
       setTimeSaving(false);
+    }
+  };
+
+  const handleTimezoneBlur = async (tz: string) => {
+    if (!tz) return;
+    try {
+      await updateNotificationSettings({ briefing_timezone: tz });
+    } catch {
+      // non-critical
     }
   };
 
@@ -477,7 +493,7 @@ function DailyBriefSection() {
       <div className="rounded-lg border border-border bg-card p-4 space-y-4">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground" htmlFor="briefing-time">
-            Generation time (UTC)
+            Generation time
           </label>
           <div className="flex items-center gap-2">
             <input
@@ -491,7 +507,25 @@ function DailyBriefSection() {
             {timeSaving && <RefreshCw className="size-3 animate-spin text-muted-foreground" />}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Your brief will be generated automatically at this time each day.
+            Your brief will be generated automatically at this local time each day.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground" htmlFor="briefing-timezone">
+            Timezone
+          </label>
+          <input
+            id="briefing-timezone"
+            type="text"
+            value={briefingTimezone}
+            onChange={(e) => setBriefingTimezone(e.target.value)}
+            onBlur={(e) => void handleTimezoneBlur(e.target.value)}
+            placeholder="e.g. Europe/Bucharest"
+            className="w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            IANA timezone name (e.g. America/New_York). DST is applied automatically.
           </p>
         </div>
 
@@ -555,6 +589,60 @@ function DailyBriefSection() {
   );
 }
 
+type ExportState = 'idle' | 'running' | 'done' | 'error';
+
+function DataExportSection() {
+  const [state, setState] = useState<ExportState>('idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    setState('running');
+    setErrorMsg(null);
+    try {
+      await downloadUserExport();
+      setState('done');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Export failed.');
+      setState('error');
+    }
+  };
+
+  return (
+    <section>
+      <div className="text-[10px] uppercase tracking-wider text-subtle font-medium mb-2">
+        Data Export
+      </div>
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Download a personal archive of your reading history, starred articles, workflow state, and
+          daily briefings as a JSON file.
+        </p>
+        <button
+          onClick={() => void handleExport()}
+          disabled={state === 'running'}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
+        >
+          {state === 'running' ? (
+            <RefreshCw className="size-3 animate-spin" />
+          ) : (
+            <Download className="size-3" />
+          )}
+          {state === 'running' ? 'Preparing…' : 'Download archive'}
+        </button>
+
+        {state === 'done' && (
+          <p className="text-xs text-green-600 dark:text-green-400">Archive downloaded.</p>
+        )}
+        {state === 'error' && (
+          <p className="text-xs text-destructive">
+            {errorMsg ?? 'Export failed. Please try again.'}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsPage() {
   const { theme, setTheme } = useTheme();
 
@@ -591,6 +679,8 @@ export function SettingsPage() {
       </section>
 
       <PersonalizationSection />
+
+      <DataExportSection />
 
       <DailyBriefSection />
 

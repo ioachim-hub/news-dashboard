@@ -65,6 +65,16 @@ def _add_source(conn: Any, slug: str, name: str) -> None:
     )
 
 
+def _add_private_source(conn: Any, slug: str, name: str, owner_user_id: int) -> None:
+    conn.execute(
+        """
+        INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)
+        VALUES (%s, %s, %s, 'tech', 'rss_feed', 10, TRUE, %s)
+        """,
+        (slug, name, f"https://example.com/{slug}.xml", owner_user_id),
+    )
+
+
 def _add_article(
     conn: Any,
     *,
@@ -218,6 +228,52 @@ def test_source_health_counts_leading_errors_and_sorts_first(tmp_path: Path) -> 
     assert python["status"] == "ERROR"
     assert python["last_error"] == "TimeoutError: connection timed out"
     assert items[0]["slug"] == "python-insider"
+
+
+def test_source_health_scoped_to_user_visibility(pg_clean: str, monkeypatch: Any) -> None:
+    monkeypatch.setenv("DATABASE_URL", pg_clean)
+    alice_id = _make_user(pg_clean, "alice")
+    bob_id = _make_user(pg_clean, "bob")
+
+    with connect(pg_clean) as conn:
+        _add_private_source(conn, "alice-private", "Alice Private Feed", alice_id)
+        _add_private_source(conn, "bob-private", "Bob Private Feed", bob_id)
+
+    alice_items = list_source_health(user_id=alice_id, database_url=pg_clean)
+    alice_slugs = {item["slug"] for item in alice_items}
+
+    assert "alice-private" in alice_slugs, "alice should see her own private source"
+    assert "bob-private" not in alice_slugs, "alice should not see bob's private source"
+
+    bob_items = list_source_health(user_id=bob_id, database_url=pg_clean)
+    bob_slugs = {item["slug"] for item in bob_items}
+
+    assert "bob-private" in bob_slugs, "bob should see his own private source"
+    assert "alice-private" not in bob_slugs, "bob should not see alice's private source"
+
+
+def test_source_health_api_scoped_to_current_user(pg_clean: str, monkeypatch: Any) -> None:
+    monkeypatch.setenv("DATABASE_URL", pg_clean)
+    alice_id = _make_user(pg_clean, "alice")
+    bob_id = _make_user(pg_clean, "bob")
+
+    with connect(pg_clean) as conn:
+        _add_private_source(conn, "alice-private", "Alice Private Feed", alice_id)
+        _add_private_source(conn, "bob-private", "Bob Private Feed", bob_id)
+
+    client = _api_client(alice_id)
+    try:
+        resp = client.get("/api/sources/health")
+        assert resp.status_code == 200
+        slugs = {item["slug"] for item in resp.json()["items"]}
+        assert "alice-private" in slugs, "alice should see her own private source via API"
+        assert "bob-private" not in slugs, "alice should not see bob's private source via API"
+    finally:
+        from news_dashboard.auth import require_admin, require_auth
+        from news_dashboard.main import app
+
+        app.dependency_overrides.pop(require_auth, None)
+        app.dependency_overrides.pop(require_admin, None)
 
 
 def test_subscription_cleanup_suggests_high_skip_rate_source(

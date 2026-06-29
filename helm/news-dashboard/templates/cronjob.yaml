@@ -5,10 +5,23 @@ metadata:
   name: {{ include "news-dashboard.fullname" . }}-ingest
 spec:
   schedule: {{ .Values.ingestCronJob.schedule | quote }}
+  concurrencyPolicy: {{ .Values.ingestCronJob.concurrencyPolicy | default "Forbid" }}
+  {{- with .Values.ingestCronJob.startingDeadlineSeconds }}
+  startingDeadlineSeconds: {{ . }}
+  {{- end }}
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      {{- with .Values.ingestCronJob.activeDeadlineSeconds }}
+      activeDeadlineSeconds: {{ . }}
+      {{- end }}
+      {{- with .Values.ingestCronJob.backoffLimit }}
+      backoffLimit: {{ . }}
+      {{- end }}
+      {{- with .Values.ingestCronJob.ttlSecondsAfterFinished }}
+      ttlSecondsAfterFinished: {{ . }}
+      {{- end }}
       template:
         spec:
           restartPolicy: OnFailure
@@ -27,6 +40,10 @@ spec:
                 runAsUser: 1000
                 runAsGroup: 1000
               command: ["news-dashboard", "scheduled-ingest"]
+              {{- with .Values.ingestCronJob.resources }}
+              resources:
+{{ toYaml . | indent 16 }}
+              {{- end }}
               env:
 {{- if .Values.postgresql.enabled }}
                 - name: POSTGRES_HOST
@@ -75,4 +92,5 @@ spec:
     {{- fail "External PostgreSQL configuration is required when postgresql.enabled=false. Provide app.postgresExternal or app.databaseUrl." }}
   {{- end }}
 {{- end }}
+{{ include "news-dashboard.aiEnv" . | indent 16 }}
 {{- end }}

@@ -105,6 +105,76 @@ test.describe('PWA — manifest file', () => {
   });
 });
 
+const KNOWN_ROUTES = [
+  '/',
+  '/today',
+  '/search',
+  '/shared',
+  '/later',
+  '/starred',
+  '/briefs',
+  '/feeds',
+  '/settings',
+  '/archive',
+];
+
+test.describe('PWA — shortcuts', () => {
+  test('manifest exposes a shortcuts array', async ({ page }) => {
+    const response = await page.request.get('/manifest.webmanifest');
+    const manifest = await response.json();
+    expect(Array.isArray(manifest.shortcuts)).toBe(true);
+    expect((manifest.shortcuts as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  test('each shortcut has name, url, and icons', async ({ page }) => {
+    const response = await page.request.get('/manifest.webmanifest');
+    const manifest = await response.json();
+    const shortcuts: Array<{ name: string; url: string; icons?: unknown[] }> =
+      manifest.shortcuts ?? [];
+    for (const shortcut of shortcuts) {
+      expect(typeof shortcut.name).toBe('string');
+      expect(shortcut.name.length).toBeGreaterThan(0);
+      expect(typeof shortcut.url).toBe('string');
+      expect(shortcut.url.length).toBeGreaterThan(0);
+      expect(Array.isArray(shortcut.icons)).toBe(true);
+      expect((shortcut.icons ?? []).length).toBeGreaterThan(0);
+    }
+  });
+
+  test('each shortcut url targets a known app route', async ({ page }) => {
+    const response = await page.request.get('/manifest.webmanifest');
+    const manifest = await response.json();
+    const shortcuts: Array<{ url: string }> = manifest.shortcuts ?? [];
+    for (const shortcut of shortcuts) {
+      const url = shortcut.url.split('?')[0].split('#')[0];
+      expect(KNOWN_ROUTES).toContain(url);
+    }
+  });
+
+  test('manifest includes Today, Brief, Search, and Shared shortcuts', async ({ page }) => {
+    const response = await page.request.get('/manifest.webmanifest');
+    const manifest = await response.json();
+    const shortcuts: Array<{ name: string; url: string }> = manifest.shortcuts ?? [];
+    const names = shortcuts.map((s) => s.name);
+    expect(names).toContain('Today');
+    expect(names).toContain('Brief');
+    expect(names).toContain('Search');
+    expect(names).toContain('Shared');
+  });
+
+  test('shortcut icon references use existing packaged icons', async ({ page }) => {
+    const response = await page.request.get('/manifest.webmanifest');
+    const manifest = await response.json();
+    const shortcuts: Array<{ icons?: Array<{ src: string }> }> = manifest.shortcuts ?? [];
+    for (const shortcut of shortcuts) {
+      for (const icon of shortcut.icons ?? []) {
+        const iconResponse = await page.request.get(icon.src);
+        expect(iconResponse.status()).toBe(200);
+      }
+    }
+  });
+});
+
 test.describe('PWA — icon files', () => {
   test('GET /favicon.svg returns 200', async ({ page }) => {
     const response = await page.request.get('/favicon.svg');

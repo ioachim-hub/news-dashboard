@@ -279,6 +279,14 @@ POSTGRES_MULTIUSER_SCHEMA = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_user_sources_user ON user_sources(user_id, enabled)",
     """
+    CREATE TABLE IF NOT EXISTS user_interest_profiles (
+      user_id      INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      interests    JSONB NOT NULL DEFAULT '[]'::jsonb,
+      completed_at TIMESTAMPTZ,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS user_article_state (
       user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       article_id  BIGINT  NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
@@ -366,6 +374,7 @@ POSTGRES_MULTIUSER_SCHEMA = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_time TEXT DEFAULT '09:00'",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_push_enabled"
     " BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS briefing_timezone TEXT NOT NULL DEFAULT 'UTC'",
     """
     CREATE TABLE IF NOT EXISTS user_push_subscriptions (
       id          SERIAL PRIMARY KEY,
@@ -440,6 +449,34 @@ POSTGRES_MULTIUSER_SCHEMA = [
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS original_title TEXT",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS original_body TEXT",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS detected_lang VARCHAR(5) DEFAULT 'en'",
+    """
+    CREATE TABLE IF NOT EXISTS user_nudge_dismissals (
+      id              SERIAL PRIMARY KEY,
+      user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      nudge_kind      VARCHAR(20) NOT NULL,
+      nudge_target    TEXT NOT NULL,
+      dismissed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cooldown_until  TIMESTAMPTZ NOT NULL,
+      UNIQUE(user_id, nudge_kind, nudge_target)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_nudge_dismissals_user"
+    " ON user_nudge_dismissals(user_id, cooldown_until)",
+    "ALTER TABLE user_quizzes ADD COLUMN IF NOT EXISTS submitted_answers JSONB",
+    "ALTER TABLE user_quizzes ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ",
+    """
+    CREATE TABLE IF NOT EXISTS scheduled_job_runs (
+      id           SERIAL PRIMARY KEY,
+      job_name     TEXT NOT NULL,
+      started_at   TIMESTAMPTZ NOT NULL,
+      finished_at  TIMESTAMPTZ,
+      duration_ms  INTEGER,
+      status       TEXT NOT NULL,
+      message      TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_scheduled_job_runs_job_started"
+    " ON scheduled_job_runs(job_name, started_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS user_otps (
       id         SERIAL PRIMARY KEY,

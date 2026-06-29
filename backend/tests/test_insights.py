@@ -86,6 +86,55 @@ def _seed_article(pg_url: str, *, insights: str | None = None) -> int:
     return int(row["id"])
 
 
+def _seed_user(pg_url: str, username: str) -> int:
+    with connect(database_url=pg_url) as conn:
+        row = conn.execute(
+            "INSERT INTO users(username, password_hash) VALUES (%s, 'x') RETURNING id",
+            (username,),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
+def _seed_private_article(
+    pg_url: str,
+    *,
+    owner_user_id: int,
+    url_slug: str = "priv-a",
+    insights: str | None = None,
+) -> int:
+    slug = f"private-src-{url_slug}"
+    with connect(database_url=pg_url) as conn:
+        conn.execute(
+            """
+            INSERT INTO sources(slug, name, url, category, kind, owner_user_id)
+            VALUES (%s, 'Private', %s, 'tech', 'rss_feed', %s)
+            ON CONFLICT(slug) DO NOTHING
+            """,
+            (slug, f"https://{slug}.example", owner_user_id),
+        )
+        row = conn.execute(
+            """
+            INSERT INTO articles(
+              url, canonical_url, title, source_slug, source_name,
+              category, kind, summary, insights
+            )
+            VALUES (
+              %s, %s, 'Private Article', %s, 'Private', 'tech', 'rss_feed', 'Summary.', %s
+            )
+            RETURNING id
+            """,
+            (
+                f"https://{slug}.example/a",
+                f"https://{slug}.example/a",
+                slug,
+                insights,
+            ),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
 # ── _parse_bullets ────────────────────────────────────────────────────────────
 
 
@@ -385,6 +434,71 @@ def test_get_or_generate_insights_returns_empty_when_body_is_empty_string(pg_cle
     mock_client.chat.completions.create.assert_not_called()
 
 
+def test_get_or_generate_insights_cached_blocked_for_unauthorized_user(pg_clean: str) -> None:
+    """Cached insights for a private article must not be returned to another user."""
+    owner_id = _seed_user(pg_clean, "owner-ins-1")
+    other_id = _seed_user(pg_clean, "other-ins-1")
+    cached = json.dumps(["Secret insight"])
+    article_id = _seed_private_article(
+        pg_clean, owner_user_id=owner_id, url_slug="auth1", insights=cached
+    )
+
+    mock_client = MagicMock()
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"}),
+        patch("openai.OpenAI", return_value=mock_client),
+    ):
+        result = get_or_generate_insights(article_id, user_id=other_id, database_url=pg_clean)
+
+    assert result == []
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_get_or_generate_insights_cached_returned_for_owner(pg_clean: str) -> None:
+    """Owner can still retrieve cached insights for their private article."""
+    owner_id = _seed_user(pg_clean, "owner-ins-2")
+    cached = ["Owner insight"]
+    article_id = _seed_private_article(
+        pg_clean,
+        owner_user_id=owner_id,
+        url_slug="auth2",
+        insights=json.dumps(cached),
+    )
+
+    result = get_or_generate_insights(article_id, user_id=owner_id, database_url=pg_clean)
+
+    assert result == cached
+
+
+def test_get_or_generate_insights_endpoint_returns_404_for_unauthorized_cached(
+    pg_clean: str,
+) -> None:
+    """GET /api/articles/{id}/insights returns 404 when user cannot access the article."""
+    from fastapi.testclient import TestClient
+
+    from news_dashboard.auth import require_auth
+    from news_dashboard.main import app
+
+    owner_id = _seed_user(pg_clean, "owner-ins-3")
+    other_id = _seed_user(pg_clean, "other-ins-3")
+    article_id = _seed_private_article(
+        pg_clean,
+        owner_user_id=owner_id,
+        url_slug="auth3",
+        insights=json.dumps(["Cached"]),
+    )
+
+    other_user = {"id": other_id, "is_admin": False, "username": "other-ins-3"}
+    app.dependency_overrides[require_auth] = lambda: other_user
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/api/articles/{article_id}/insights")
+    finally:
+        del app.dependency_overrides[require_auth]
+
+    assert resp.status_code == 404
+
+
 # ── clustering unit tests (no DB, no AI) ─────────────────────────────────────
 
 
@@ -511,6 +625,150 @@ def _seed_articles_with_embeddings(pg_url: str, groups: list[list[list[float]]])
                 assert row is not None
                 ids.append(int(row["id"]))
     return ids
+
+
+def _seed_topic_map_article(
+    pg_url: str,
+    *,
+    source_slug: str,
+    title: str,
+    url_slug: str,
+    embedding: bytes,
+) -> int:
+    with connect(database_url=pg_url) as conn:
+        row = conn.execute(
+            """
+            INSERT INTO articles(
+              url, canonical_url, title, source_slug, source_name,
+              category, kind, summary, embedding, discovered_at
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, 'tech', 'rss_feed', %s, %s, NOW()
+            )
+            RETURNING id
+            """,
+            (
+                f"https://example.com/topic-map/{url_slug}",
+                f"https://example.com/topic-map/{url_slug}",
+                title,
+                source_slug,
+                source_slug,
+                f"Summary for {title}",
+                embedding,
+            ),
+        ).fetchone()
+    assert row is not None
+    return int(row["id"])
+
+
+def test_cluster_recent_articles_scopes_corpus_to_user_visible_articles(pg_clean: str) -> None:
+    """Topic Map must not leak titles or summaries from articles hidden from the user."""
+    vec = _pack_vec(_normalize([1.0, 0.01, 0.02, 0.03]))
+
+    with connect(database_url=pg_clean) as conn:
+        user_row = conn.execute(
+            "INSERT INTO users(username, password_hash) VALUES ('scoped-user', 'x') RETURNING id"
+        ).fetchone()
+        other_user_row = conn.execute(
+            "INSERT INTO users(username, password_hash) VALUES ('other-user', 'x') RETURNING id"
+        ).fetchone()
+        assert user_row is not None
+        assert other_user_row is not None
+        user_id = int(user_row["id"])
+        other_user_id = int(other_user_row["id"])
+
+        conn.execute(
+            """
+            INSERT INTO sources(slug, name, url, category, kind, owner_user_id)
+            VALUES
+              (
+                'visible-global', 'Visible Global', 'https://visible.example',
+                'tech', 'rss_feed', NULL
+              ),
+              (
+                'disabled-global', 'Disabled Global', 'https://disabled.example',
+                'tech', 'rss_feed', NULL
+              ),
+              ('owned-private', 'Owned Private', 'https://owned.example', 'tech', 'rss_feed', %s),
+              ('other-private', 'Other Private', 'https://other.example', 'tech', 'rss_feed', %s)
+            """,
+            (user_id, other_user_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO user_sources(user_id, source_slug, enabled)
+            VALUES (%s, 'disabled-global', FALSE)
+            """,
+            (user_id,),
+        )
+
+    visible_ids = [
+        _seed_topic_map_article(
+            pg_clean,
+            source_slug="visible-global",
+            title=f"Visible global {idx}",
+            url_slug=f"visible-global-{idx}",
+            embedding=vec,
+        )
+        for idx in range(3)
+    ]
+    visible_ids.append(
+        _seed_topic_map_article(
+            pg_clean,
+            source_slug="owned-private",
+            title="Owned private visible",
+            url_slug="owned-private",
+            embedding=vec,
+        )
+    )
+    disabled_id = _seed_topic_map_article(
+        pg_clean,
+        source_slug="disabled-global",
+        title="Disabled global hidden",
+        url_slug="disabled-global",
+        embedding=vec,
+    )
+    other_private_id = _seed_topic_map_article(
+        pg_clean,
+        source_slug="other-private",
+        title="Other private hidden",
+        url_slug="other-private",
+        embedding=vec,
+    )
+    archived_id = visible_ids.pop()
+    with connect(database_url=pg_clean) as conn:
+        conn.execute(
+            """
+            INSERT INTO user_article_state(user_id, article_id, state)
+            VALUES (%s, %s, 'archived')
+            """,
+            (user_id, archived_id),
+        )
+
+    with patch(
+        "news_dashboard.insights._generate_cluster_label",
+        return_value=("Scoped cluster", "Only visible articles."),
+    ):
+        clusters = cluster_recent_articles(user_id=user_id, database_url=pg_clean)
+        unscoped_clusters = cluster_recent_articles(user_id=None, database_url=pg_clean)
+
+    scoped_articles = [article for cluster in clusters for article in cluster["articles"]]
+    scoped_ids = {int(article["id"]) for article in scoped_articles}
+    scoped_text = " ".join(
+        f"{article['title']} {article['summary']}" for article in scoped_articles
+    )
+    assert scoped_ids == set(visible_ids)
+    assert disabled_id not in scoped_ids
+    assert other_private_id not in scoped_ids
+    assert archived_id not in scoped_ids
+    assert "Disabled global hidden" not in scoped_text
+    assert "Other private hidden" not in scoped_text
+    assert "Owned private visible" not in scoped_text
+
+    unscoped_ids = {
+        int(article["id"]) for cluster in unscoped_clusters for article in cluster["articles"]
+    }
+    assert {disabled_id, other_private_id, archived_id}.issubset(unscoped_ids)
 
 
 def test_cluster_recent_articles_groups_similar_embeddings(pg_clean: str) -> None:

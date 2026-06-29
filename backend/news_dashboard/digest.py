@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import logging
 import os
 import smtplib
@@ -13,7 +14,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
-from news_dashboard.db import connect, init_db, row_to_dict
+from news_dashboard.db import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +28,26 @@ _TOKEN_SECRET = os.getenv("TOKEN_SECRET", "news-dashboard-default-secret-change-
 # ---------------------------------------------------------------------------
 
 
-def _make_token(article_id: int) -> str:
-    """Return a short HMAC token for the given article id."""
-    msg = f"read:{article_id}".encode()
+def _token_signature(user_id: int, article_id: int) -> str:
+    msg = f"read:{user_id}:{article_id}".encode()
     return hmac.new(_TOKEN_SECRET.encode(), msg, hashlib.sha256).hexdigest()[:32]
 
 
-def verify_read_token(article_id: int, token: str) -> bool:
-    expected = _make_token(article_id)
-    return hmac.compare_digest(expected, token)
+def _make_token(user_id: int, article_id: int) -> str:
+    """Return a signed token binding the article to the digest recipient."""
+    return f"{user_id}.{_token_signature(user_id, article_id)}"
+
+
+def verify_read_token(article_id: int, token: str) -> int | None:
+    try:
+        user_id_text, signature = token.split(".", 1)
+        user_id = int(user_id_text)
+    except ValueError:
+        return None
+    expected = _token_signature(user_id, article_id)
+    if not hmac.compare_digest(expected, signature):
+        return None
+    return user_id
 
 
 # ---------------------------------------------------------------------------
@@ -43,19 +55,19 @@ def verify_read_token(article_id: int, token: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _get_top_new_articles(limit: int = 10) -> list[dict[str, Any]]:
+def _get_top_new_articles(user_id: int, limit: int = 10) -> list[dict[str, Any]]:
+    from news_dashboard.ingest import list_articles
+
     init_db()
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM articles
-            WHERE status = 'new'
-            ORDER BY importance_score DESC, discovered_at DESC
-            LIMIT %s
-            """,
-            (limit,),
-        ).fetchall()
-    return [row_to_dict(r) for r in rows]
+    articles = list_articles(state="today", user_id=user_id, limit=max(limit * 5, limit))
+    return sorted(
+        articles,
+        key=lambda article: (
+            article.get("importance_score") or 0,
+            article.get("discovered_at") or "",
+        ),
+        reverse=True,
+    )[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -67,16 +79,16 @@ def _base_url() -> str:
     return os.getenv("APP_BASE_URL", "http://localhost:8000")
 
 
-def _render_html(articles: list[dict[str, Any]]) -> str:
+def _render_html(articles: list[dict[str, Any]], *, user_id: int) -> str:
     base = _base_url()
     rows = ""
     for a in articles:
-        token = _make_token(a["id"])
+        token = _make_token(user_id, a["id"])
         mark_read_url = f"{base}/api/articles/{a['id']}/read?token={token}"
-        title = a.get("title") or "Untitled"
-        url = a.get("url") or "#"
-        source = a.get("source_name") or ""
-        summary = a.get("summary") or ""
+        title = html.escape(a.get("title") or "Untitled")
+        url = html.escape(a.get("url") or "#", quote=True)
+        source = html.escape(a.get("source_name") or "")
+        summary = html.escape(a.get("summary") or "")
         score = a.get("importance_score", 0)
         rows += f"""
         <tr>
@@ -104,11 +116,11 @@ def _render_html(articles: list[dict[str, Any]]) -> str:
     """
 
 
-def _render_text(articles: list[dict[str, Any]]) -> str:
+def _render_text(articles: list[dict[str, Any]], *, user_id: int) -> str:
     base = _base_url()
     lines = [f"News Digest — {datetime.now(timezone.utc).strftime('%A, %B %d %Y')}", ""]
     for i, a in enumerate(articles, 1):
-        token = _make_token(a["id"])
+        token = _make_token(user_id, a["id"])
         mark_read_url = f"{base}/api/articles/{a['id']}/read?token={token}"
         title = a.get("title") or "Untitled"
         url = a.get("url") or ""
@@ -179,8 +191,17 @@ def send_digest() -> bool:
     if not digest_to:
         logger.info("DIGEST_TO not set — skipping digest.")
         return False
+    digest_user_id_raw = os.getenv("DIGEST_USER_ID", "")
+    if not digest_user_id_raw:
+        logger.info("DIGEST_USER_ID not set — skipping digest.")
+        return False
+    try:
+        digest_user_id = int(digest_user_id_raw)
+    except ValueError:
+        logger.warning("DIGEST_USER_ID is not a valid integer — skipping digest.")
+        return False
 
-    articles = _get_top_new_articles(limit=10)
+    articles = _get_top_new_articles(digest_user_id, limit=10)
     if not articles:
         logger.info("No new articles — skipping digest.")
         return False
@@ -189,8 +210,8 @@ def send_digest() -> bool:
     subject = (
         f"News Digest {date_str} — {len(articles)} new article{'s' if len(articles) != 1 else ''}"
     )
-    html_body = _render_html(articles)
-    text_body = _render_text(articles)
+    html_body = _render_html(articles, user_id=digest_user_id)
+    text_body = _render_text(articles, user_id=digest_user_id)
 
     _send_email(subject, html_body, text_body)
     return True

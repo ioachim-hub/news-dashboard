@@ -9,6 +9,7 @@ Covered scenarios
 - COALESCE(uas.starred, false)     — list_articles starred filter
 - COALESCE(us_src.enabled, true)   — source subscription filter in list_articles
 - COALESCE(us.enabled, true)       — sources listing CASE expression in main.py
+- user_interest_profiles.interests — onboarding profile JSONB storage
 - Writing user_sources.enabled as a Python bool (not 0/1) via PATCH API
 - State isolation between users on PostgreSQL
 - Private source visibility on PostgreSQL
@@ -159,6 +160,24 @@ def test_pg_list_articles_starred_filter(pg_env: str) -> None:
     assert all(a["starred"] is True for a in results if a["id"] == aid)
 
 
+def test_pg_user_interest_profiles_interests_is_jsonb(pg_env: str) -> None:
+    import psycopg
+
+    with psycopg.connect(pg_env) as conn:
+        row = conn.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'user_interest_profiles'
+              AND column_name = 'interests'
+            """
+        ).fetchone()
+
+    assert row is not None
+    assert row[0] == "jsonb"
+
+
 def test_pg_list_articles_unstarred_filter(pg_env: str) -> None:
     """Starred=False filter must correctly exclude starred articles on PostgreSQL."""
     from news_dashboard.ingest import list_articles, set_article_starred
@@ -279,7 +298,7 @@ def test_pg_list_articles_respects_source_subscription(pg_env: str) -> None:
     uid = _make_user(pg_url, "sub-user")
     aid = _add_article(pg_url, source_slug="pg-src-sub", url_suffix="sub1")
 
-    # Default: no user_sources row → source is visible.
+    # Default: no user_sources row means the source is visible.
     results = list_articles(state="today", user_id=uid)
     assert any(a["id"] == aid for a in results)
 

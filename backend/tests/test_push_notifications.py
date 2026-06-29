@@ -17,6 +17,7 @@ from news_dashboard.push import (
     get_user_push_subscriptions,
     save_push_subscription,
     send_push_for_user,
+    validate_push_subscription,
 )
 
 
@@ -227,6 +228,37 @@ def test_send_push_notification_payload_with_url(monkeypatch: pytest.MonkeyPatch
     assert payload == {"title": "T", "body": "B", "url": "/briefs/42"}
 
 
+def test_send_push_notification_payload_with_tag(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    import news_dashboard.push as push_mod
+
+    monkeypatch.setenv("VAPID_PRIVATE_KEY", "fake-private-key")
+
+    mock_webpush = MagicMock()
+
+    class _FakeWebPushError(Exception):
+        pass
+
+    fake_module: dict[str, Any] = {
+        "webpush": mock_webpush,
+        "WebPushException": _FakeWebPushError,
+    }
+    with patch.dict("sys.modules", {"pywebpush": MagicMock(**fake_module)}):
+        push_mod.send_push_notification(
+            endpoint="https://ep.example.com",
+            p256dh="abc",
+            auth="xyz",
+            title="T",
+            body="B",
+            target_url="/shared",
+            tag="shared-article",
+        )
+
+    payload = json.loads(mock_webpush.call_args.kwargs["data"])
+    assert payload == {"title": "T", "body": "B", "url": "/shared", "tag": "shared-article"}
+
+
 def test_send_push_notification_logs_on_webpush_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -288,6 +320,25 @@ def test_send_push_for_user_calls_send_for_each_sub(
     assert mock_send.call_count == 2
 
 
+def test_notify_share_recipient_routes_push_to_shared_inbox() -> None:
+    from news_dashboard.main import _notify_share_recipient
+
+    with patch("news_dashboard.push.send_push_for_user") as mock_send:
+        _notify_share_recipient(
+            to_user_id=42,
+            sender="alice",
+            article_title="Interesting article",
+        )
+
+    mock_send.assert_called_once_with(
+        42,
+        "alice shared an article",
+        "Interesting article",
+        target_url="/shared",
+        tag="shared-article",
+    )
+
+
 # ── API endpoints ──────────────────────────────────────────────────────────────
 
 
@@ -296,7 +347,11 @@ def test_get_notification_settings_returns_defaults(
 ) -> None:
     monkeypatch.setenv("VAPID_PUBLIC_KEY", "BExampleKey==")
 
-    fake_row: dict[str, Any] = {"briefing_time": "09:00", "briefing_push_enabled": False}
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": "UTC",
+    }
 
     with patch("news_dashboard.main.connect") as mock_connect:
         ctx = mock_connect.return_value.__enter__.return_value
@@ -307,12 +362,39 @@ def test_get_notification_settings_returns_defaults(
     assert resp.status_code == 200
     data = resp.json()
     assert data["briefing_time"] == "09:00"
+    assert data["briefing_timezone"] == "UTC"
     assert data["push_enabled"] is False
     assert data["vapid_public_key"] == "BExampleKey=="
 
 
+def test_get_notification_settings_utc_fallback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Users without a timezone value fall back to UTC."""
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", "BExampleKey==")
+
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": None,
+    }
+
+    with patch("news_dashboard.main.connect") as mock_connect:
+        ctx = mock_connect.return_value.__enter__.return_value
+        ctx.execute.return_value.fetchone.return_value = fake_row
+
+        resp = client.get("/api/settings/notifications")
+
+    assert resp.status_code == 200
+    assert resp.json()["briefing_timezone"] == "UTC"
+
+
 def test_put_notification_settings_valid_time(client: TestClient) -> None:
-    fake_row: dict[str, Any] = {"briefing_time": "08:30", "briefing_push_enabled": True}
+    fake_row: dict[str, Any] = {
+        "briefing_time": "08:30",
+        "briefing_push_enabled": True,
+        "briefing_timezone": "UTC",
+    }
 
     with patch("news_dashboard.main.connect") as mock_connect:
         ctx = mock_connect.return_value.__enter__.return_value
@@ -327,6 +409,31 @@ def test_put_notification_settings_valid_time(client: TestClient) -> None:
     data = resp.json()
     assert data["briefing_time"] == "08:30"
     assert data["push_enabled"] is True
+
+
+def test_put_notification_settings_valid_timezone(client: TestClient) -> None:
+    fake_row: dict[str, Any] = {
+        "briefing_time": "09:00",
+        "briefing_push_enabled": False,
+        "briefing_timezone": "Europe/Bucharest",
+    }
+
+    with patch("news_dashboard.main.connect") as mock_connect:
+        ctx = mock_connect.return_value.__enter__.return_value
+        ctx.execute.return_value.fetchone.return_value = fake_row
+
+        resp = client.put(
+            "/api/settings/notifications",
+            json={"briefing_timezone": "Europe/Bucharest"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["briefing_timezone"] == "Europe/Bucharest"
+
+
+def test_put_notification_settings_invalid_timezone(client: TestClient) -> None:
+    resp = client.put("/api/settings/notifications", json={"briefing_timezone": "Mars/Olympus"})
+    assert resp.status_code == 422
 
 
 def test_put_notification_settings_invalid_time(client: TestClient) -> None:
@@ -351,6 +458,118 @@ def test_push_unsubscribe_endpoint(client: TestClient) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"unsubscribed": True}
     mock_del.assert_called_once_with(1)
+
+
+# ── validate_push_subscription unit tests ─────────────────────────────────────
+
+
+def test_validate_push_subscription_accepts_valid() -> None:
+    # Real-shaped Chrome FCM and Firefox Mozilla push endpoints
+    validate_push_subscription(
+        "https://fcm.googleapis.com/fcm/send/abcdefgh",
+        "BNQtHLiP_xyz-base64url",
+        "authkeyABC",
+    )
+    validate_push_subscription(
+        "https://updates.push.services.mozilla.com/push/v1/someid",
+        "BNQtHLiP_xyz-base64url",
+        "authkeyABC",
+    )
+
+
+def test_validate_push_subscription_rejects_http_scheme() -> None:
+    with pytest.raises(ValueError, match="https"):
+        validate_push_subscription("http://ep.example.com/push", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_relative_url() -> None:
+    with pytest.raises(ValueError, match="https"):
+        validate_push_subscription("/push/v1/endpoint", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_empty_endpoint() -> None:
+    with pytest.raises(ValueError, match="https"):
+        validate_push_subscription("", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_localhost() -> None:
+    with pytest.raises(ValueError, match="non-public"):
+        validate_push_subscription("https://127.0.0.1/push", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_loopback_ipv6() -> None:
+    with pytest.raises(ValueError, match="non-public"):
+        validate_push_subscription("https://[::1]/push", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_private_ip() -> None:
+    with pytest.raises(ValueError, match="non-public"):
+        validate_push_subscription("https://192.168.1.1/push", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_link_local() -> None:
+    with pytest.raises(ValueError, match="non-public"):
+        validate_push_subscription("https://169.254.1.1/push", "key", "auth")
+
+
+def test_validate_push_subscription_rejects_empty_p256dh() -> None:
+    with pytest.raises(ValueError, match="p256dh"):
+        validate_push_subscription("https://ep.example.com/push", "", "auth")
+
+
+def test_validate_push_subscription_rejects_empty_auth() -> None:
+    with pytest.raises(ValueError, match="auth"):
+        validate_push_subscription("https://ep.example.com/push", "key", "")
+
+
+def test_validate_push_subscription_rejects_oversized_endpoint() -> None:
+    with pytest.raises(ValueError, match="too long"):
+        validate_push_subscription("https://ep.example.com/" + "a" * 2100, "key", "auth")
+
+
+def test_validate_push_subscription_rejects_non_base64url_p256dh() -> None:
+    with pytest.raises(ValueError, match="base64url"):
+        validate_push_subscription("https://ep.example.com/push", "key with spaces!", "auth")
+
+
+def test_validate_push_subscription_rejects_non_base64url_auth() -> None:
+    with pytest.raises(ValueError, match="base64url"):
+        validate_push_subscription("https://ep.example.com/push", "validkey", "auth with spaces!")
+
+
+# ── Subscribe endpoint validation integration ──────────────────────────────────
+
+
+def test_push_subscribe_endpoint_rejects_http_endpoint(client: TestClient) -> None:
+    resp = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "http://ep.example.com/push", "p256dh": "abc", "auth": "xyz"},
+    )
+    assert resp.status_code == 422
+
+
+def test_push_subscribe_endpoint_rejects_private_ip(client: TestClient) -> None:
+    resp = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://10.0.0.1/push", "p256dh": "abc", "auth": "xyz"},
+    )
+    assert resp.status_code == 422
+
+
+def test_push_subscribe_endpoint_rejects_empty_keys(client: TestClient) -> None:
+    resp = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://ep.example.com/push", "p256dh": "", "auth": "xyz"},
+    )
+    assert resp.status_code == 422
+
+
+def test_push_subscribe_endpoint_rejects_localhost(client: TestClient) -> None:
+    resp = client.post(
+        "/api/notifications/subscribe",
+        json={"endpoint": "https://127.0.0.1/push", "p256dh": "abc", "auth": "xyz"},
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.postgres

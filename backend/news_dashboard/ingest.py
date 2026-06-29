@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import feedparser
 
+from news_dashboard.article_visibility import get_visible_article_row
 from news_dashboard.db import connect, init_db, insert_article_sql, placeholders, row_to_dict
 from news_dashboard.ingest_events import ingest_events
 from news_dashboard.recommendations import COLD_START_MODEL_VERSION
@@ -58,6 +59,7 @@ _ALLOWED_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
         ("today", "archived"),
         ("later", "today"),
         ("later", "done"),
+        ("later", "skipped"),
         ("later", "archived"),
         ("done", "archived"),
         ("skipped", "today"),
@@ -80,6 +82,17 @@ class SourceIngestOutcome:
     articles_new: int
     duration_seconds: float
     error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    results: dict[str, int]
+    run_id: int
+    total_errors: int
+
+    @property
+    def failed_sources(self) -> list[str]:
+        return [slug for slug, count in self.results.items() if count < 0]
 
 
 TRACKING_PARAMS = {
@@ -310,16 +323,35 @@ def _fetch_article_snippet(url: str) -> str:
     return ""
 
 
-def _find_canonical(conn: Any, canonical_url: str, title: str) -> int | None:
-    """Return the id of an existing canonical article matching by URL or fuzzy title, or None."""
+def _find_canonical(
+    conn: Any, canonical_url: str, title: str, owner_user_id: int | None = None
+) -> int | None:
+    """Return the id of an existing canonical article matching by URL or fuzzy title, or None.
+
+    Source-visibility rules for canonical selection:
+    - A global source (owner_user_id=None) may only canonicalize against other global canonicals.
+    - A private source (owner_user_id!=None) may canonicalize against global canonicals or
+      canonicals owned by the same user, but not private canonicals from a different owner.
+    """
+    if owner_user_id is None:
+        # Global source: only match global canonical articles
+        visibility_clause = "AND s.owner_user_id IS NULL"
+        visibility_params: tuple[int, ...] = ()
+    else:
+        # Private source: match global or same-owner private canonical articles
+        visibility_clause = "AND (s.owner_user_id IS NULL OR s.owner_user_id = %s)"
+        visibility_params = (owner_user_id,)
+
     # Exact URL match (canonical_url already stripped of tracking params)
     row = conn.execute(
-        """
-        SELECT id FROM articles
-        WHERE canonical_url=%s AND (canonical_id IS NULL OR canonical_id=id)
+        f"""
+        SELECT a.id FROM articles a
+        JOIN sources s ON s.slug = a.source_slug
+        WHERE a.canonical_url = %s AND (a.canonical_id IS NULL OR a.canonical_id = a.id)
+        {visibility_clause}
         LIMIT 1
         """,
-        (canonical_url,),
+        (canonical_url, *visibility_params),
     ).fetchone()
     if row:
         return int(row["id"] if isinstance(row, dict) else row[0])
@@ -327,12 +359,14 @@ def _find_canonical(conn: Any, canonical_url: str, title: str) -> int | None:
     # Fuzzy title match against recent articles (last 7 days) that are canonical
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     rows = conn.execute(
-        """SELECT id, title FROM articles
-           WHERE canonical_id IS NULL
-             AND discovered_at >= %s
-           ORDER BY discovered_at DESC
+        f"""SELECT a.id, a.title FROM articles a
+           JOIN sources s ON s.slug = a.source_slug
+           WHERE a.canonical_id IS NULL
+             AND a.discovered_at >= %s
+             {visibility_clause}
+           ORDER BY a.discovered_at DESC
            LIMIT 200""",
-        (cutoff,),
+        (cutoff, *visibility_params),
     ).fetchall()
     for r in rows:
         existing_title = str(r["title"] if isinstance(r, dict) else r[1])
@@ -584,7 +618,7 @@ def _ingest_source(
                 )
 
                 # Deduplication: check if this article is a duplicate of an existing canonical
-                canonical_id = _find_canonical(conn, url, translated_title)
+                canonical_id = _find_canonical(conn, url, translated_title, source.owner_user_id)
                 if canonical_id is not None:
                     # Insert as archived duplicate pointing to canonical
                     conn.execute(
@@ -761,7 +795,7 @@ def _format_source_log(outcome: SourceIngestOutcome) -> str:
     )
 
 
-def ingest_all(db_path: Path | str | None = None) -> dict[str, int]:
+def ingest_all(db_path: Path | str | None = None) -> IngestResult:
     with _INGEST_RUN_LOCK:
         sync_sources(db_path)
         run_started_at = now_iso()
@@ -773,7 +807,7 @@ def ingest_all(db_path: Path | str | None = None) -> dict[str, int]:
         sources_to_ingest: list[SourceDefinition] = [s for s in DEFAULT_SOURCES if s.enabled]
         with connect(db_path) as conn:
             private_rows = conn.execute(
-                "SELECT slug, name, url, category, kind, priority, lang"
+                "SELECT slug, name, url, category, kind, priority, lang, owner_user_id"
                 " FROM sources WHERE owner_user_id IS NOT NULL AND enabled IS TRUE"
             ).fetchall()
         for row in private_rows:
@@ -787,6 +821,7 @@ def ingest_all(db_path: Path | str | None = None) -> dict[str, int]:
                     kind=r["kind"],
                     priority=int(r["priority"] or 0),
                     lang=r.get("lang") or "en",
+                    owner_user_id=int(r["owner_user_id"]),
                 )
             )
 
@@ -815,7 +850,7 @@ def ingest_all(db_path: Path | str | None = None) -> dict[str, int]:
             ingest_events.complete_run(
                 f"Summary — {total_new} new {article_word}{error_text} ({duration_seconds:.1f}s)"
             )
-    return results
+    return IngestResult(results=results, run_id=run_id, total_errors=total_errors)
 
 
 _INTERNAL_ARTICLE_COLUMNS = frozenset({"embedding", "fts_vector", "search_vector"})
@@ -1241,23 +1276,40 @@ def _list_articles_for_user(  # noqa: PLR0913
             d["restored_at"] = d.pop("_uas_restored_at", None)
             _apply_recommendation_fields(d)
             articles.append(d)
-        _attach_also_from(conn, articles)
+        _attach_also_from(conn, articles, user_id=user_id)
         return articles
 
 
-def _attach_also_from(conn: Any, articles: list[dict[str, Any]]) -> None:
-    """Attach duplicate source names to canonical articles (in-place)."""
+def _attach_also_from(
+    conn: Any, articles: list[dict[str, Any]], user_id: int | None = None
+) -> None:
+    """Attach duplicate source names to canonical articles (in-place).
+
+    When user_id is provided, only include duplicate sources visible to that user
+    (global sources or sources owned by that user).
+    """
     article_ids = [a["id"] for a in articles]
     if not article_ids:
         return
     article_placeholders = placeholders(article_ids)
-    dup_rows = conn.execute(
-        f"""
-        SELECT canonical_id, source_name FROM articles
-        WHERE canonical_id IN ({article_placeholders}) AND state='archived'
-        """,
-        article_ids,
-    ).fetchall()
+    if user_id is not None:
+        dup_rows = conn.execute(
+            f"""
+            SELECT a.canonical_id, a.source_name FROM articles a
+            JOIN sources s ON s.slug = a.source_slug
+            WHERE a.canonical_id IN ({article_placeholders}) AND a.state = 'archived'
+              AND (s.owner_user_id IS NULL OR s.owner_user_id = %s)
+            """,
+            [*article_ids, user_id],
+        ).fetchall()
+    else:
+        dup_rows = conn.execute(
+            f"""
+            SELECT canonical_id, source_name FROM articles
+            WHERE canonical_id IN ({article_placeholders}) AND state = 'archived'
+            """,
+            article_ids,
+        ).fetchall()
     dupes_by_canonical: dict[int, list[str]] = defaultdict(list)
     for dr in dup_rows:
         d = row_to_dict(dr)
@@ -1269,6 +1321,7 @@ def _attach_also_from(conn: Any, articles: list[dict[str, Any]]) -> None:
 def search_articles(  # noqa: PLR0912, PLR0913
     q: str = "",
     limit: int = 50,
+    offset: int = 0,
     db_path: Path | str | None = None,
     states: list[str] | None = None,
     categories: list[str] | None = None,
@@ -1287,6 +1340,7 @@ def search_articles(  # noqa: PLR0912, PLR0913
             user_id=user_id,
             q=q,
             limit=limit,
+            offset=offset,
             db_path=db_path,
             states=states,
             categories=categories,
@@ -1354,15 +1408,143 @@ def search_articles(  # noqa: PLR0912, PLR0913
             " importance_score DESC, discovered_at DESC, id DESC"
         )
     else:
-        order_by = "importance_score DESC, discovered_at DESC"
+        order_by = "importance_score DESC, discovered_at DESC, id DESC"
 
-    params.append(limit)
+    params.extend([limit, offset])
 
-    sql = f"SELECT {_article_list_select()} FROM articles {where} ORDER BY {order_by} LIMIT %s"
+    sql = f"""
+        SELECT {_article_list_select()}
+        FROM articles
+        {where}
+        ORDER BY {order_by}
+        LIMIT %s OFFSET %s
+    """
 
     with connect(db_path) as conn:
         rows = conn.execute(sql, params).fetchall()
         return [_article_dict(row) for row in rows]
+
+
+def search_articles_page(  # noqa: PLR0913
+    q: str = "",
+    limit: int = 50,
+    offset: int = 0,
+    db_path: Path | str | None = None,
+    states: list[str] | None = None,
+    categories: list[str] | None = None,
+    sources: list[str] | None = None,
+    starred_only: bool = False,
+    include_archived: bool = False,
+    date_range: str = "all",
+    user_id: int | None = None,
+) -> dict[str, Any]:
+    items = search_articles(
+        q=q,
+        limit=limit,
+        offset=offset,
+        db_path=db_path,
+        states=states,
+        categories=categories,
+        sources=sources,
+        starred_only=starred_only,
+        include_archived=include_archived,
+        date_range=date_range,
+        user_id=user_id,
+    )
+    total = count_search_articles(
+        q=q,
+        db_path=db_path,
+        states=states,
+        categories=categories,
+        sources=sources,
+        starred_only=starred_only,
+        include_archived=include_archived,
+        date_range=date_range,
+        user_id=user_id,
+    )
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(items) < total,
+    }
+
+
+def count_search_articles(  # noqa: PLR0913
+    q: str = "",
+    db_path: Path | str | None = None,
+    states: list[str] | None = None,
+    categories: list[str] | None = None,
+    sources: list[str] | None = None,
+    starred_only: bool = False,
+    include_archived: bool = False,
+    date_range: str = "all",
+    user_id: int | None = None,
+) -> int:
+    init_db(db_path)
+    tsquery = _search_tsquery(q)
+    now_ts = now_iso()
+
+    if user_id is not None:
+        return _count_search_articles_for_user(
+            user_id=user_id,
+            q=q,
+            db_path=db_path,
+            states=states,
+            categories=categories,
+            sources=sources,
+            starred_only=starred_only,
+            include_archived=include_archived,
+            date_range=date_range,
+            now_ts=now_ts,
+        )
+
+    clauses: list[str] = []
+    params: list[Any] = []
+
+    if tsquery:
+        clauses.append("search_vector @@ to_tsquery('english', %s)")
+        params.append(tsquery)
+
+    if not include_archived:
+        clauses.append("state != 'archived'")
+
+    if states:
+        state_placeholders = placeholders(states)
+        clauses.append(f"state IN ({state_placeholders})")
+        params.extend(states)
+        if include_archived is False and "archived" in states:
+            clauses.remove("state != 'archived'")
+
+    if categories:
+        category_placeholders = placeholders(categories)
+        clauses.append(f"category IN ({category_placeholders})")
+        params.extend(categories)
+
+    if sources:
+        source_placeholders = placeholders(sources)
+        clauses.append(f"source_slug IN ({source_placeholders})")
+        params.extend(sources)
+
+    if starred_only:
+        clauses.append("starred IS TRUE")
+
+    if date_range == "today":
+        clauses.append("discovered_at::timestamptz >= %s::timestamptz - interval '1 day'")
+        params.append(now_ts)
+    elif date_range == "week":
+        clauses.append("discovered_at::timestamptz >= %s::timestamptz - interval '7 days'")
+        params.append(now_ts)
+    elif date_range == "month":
+        clauses.append("discovered_at::timestamptz >= %s::timestamptz - interval '30 days'")
+        params.append(now_ts)
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with connect(db_path) as conn:
+        row = conn.execute(f"SELECT COUNT(*) AS total FROM articles {where}", params).fetchone()
+    return int(row["total"] if row is not None else 0)
 
 
 def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
@@ -1370,6 +1552,7 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
     user_id: int,
     q: str,
     limit: int,
+    offset: int,
     db_path: Path | str | None,
     states: list[str] | None,
     categories: list[str] | None,
@@ -1438,11 +1621,19 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
         )
         rank_params: list[Any] = [tsquery]
     else:
-        user_order_by = "a.importance_score DESC, a.discovered_at DESC"
+        user_order_by = "a.importance_score DESC, a.discovered_at DESC, a.id DESC"
         rank_params = []
 
-    # Param order: us_src JOIN, uas JOIN, WHERE params, owner check, rank (if any), limit
-    all_params: list[Any] = [user_id, user_id, *where_params, user_id, *rank_params, limit]
+    # Param order: us_src JOIN, uas JOIN, WHERE params, owner check, rank, limit, offset
+    all_params: list[Any] = [
+        user_id,
+        user_id,
+        *where_params,
+        user_id,
+        *rank_params,
+        limit,
+        offset,
+    ]
 
     sql = f"""
         SELECT {_article_list_select("a")},
@@ -1459,7 +1650,7 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
         LEFT JOIN user_sources us_src ON us_src.user_id = %s AND us_src.source_slug = a.source_slug
         LEFT JOIN user_article_state uas ON uas.article_id = a.id AND uas.user_id = %s
         {where}
-        ORDER BY {user_order_by} LIMIT %s
+        ORDER BY {user_order_by} LIMIT %s OFFSET %s
     """
     with connect(db_path) as conn:
         rows = conn.execute(sql, all_params).fetchall()
@@ -1476,6 +1667,80 @@ def _search_articles_for_user(  # noqa: PLR0912, PLR0913, PLR0915
             d["restored_at"] = d.pop("_uas_restored_at", None)
             result.append(d)
         return result
+
+
+def _count_search_articles_for_user(  # noqa: PLR0913
+    *,
+    user_id: int,
+    q: str,
+    db_path: Path | str | None,
+    states: list[str] | None,
+    categories: list[str] | None,
+    sources: list[str] | None,
+    starred_only: bool,
+    include_archived: bool,
+    date_range: str,
+    now_ts: str,
+) -> int:
+    tsquery = _search_tsquery(q)
+    clauses: list[str] = []
+    where_params: list[Any] = []
+
+    if tsquery:
+        clauses.append("a.search_vector @@ to_tsquery('english', %s)")
+        where_params.append(tsquery)
+
+    if not include_archived:
+        clauses.append("COALESCE(uas.state, 'today') != 'archived'")
+
+    if states:
+        state_placeholders = placeholders(states)
+        clauses.append(f"COALESCE(uas.state, 'today') IN ({state_placeholders})")
+        where_params.extend(states)
+        if include_archived is False and "archived" in states:
+            clauses.remove("COALESCE(uas.state, 'today') != 'archived'")
+
+    if categories:
+        category_placeholders = placeholders(categories)
+        clauses.append(f"a.category IN ({category_placeholders})")
+        where_params.extend(categories)
+
+    if sources:
+        source_placeholders = placeholders(sources)
+        clauses.append(f"a.source_slug IN ({source_placeholders})")
+        where_params.extend(sources)
+
+    if starred_only:
+        clauses.append("COALESCE(uas.starred, false) = true")
+
+    if date_range == "today":
+        clauses.append("a.discovered_at::timestamptz >= %s::timestamptz - interval '1 day'")
+        where_params.append(now_ts)
+    elif date_range == "week":
+        clauses.append("a.discovered_at::timestamptz >= %s::timestamptz - interval '7 days'")
+        where_params.append(now_ts)
+    elif date_range == "month":
+        clauses.append("a.discovered_at::timestamptz >= %s::timestamptz - interval '30 days'")
+        where_params.append(now_ts)
+
+    src_filter = (
+        "(src.owner_user_id IS NULL AND COALESCE(us_src.enabled, true)) OR src.owner_user_id = %s"
+    )
+    clauses.append(f"({src_filter})")
+    where = f"WHERE {' AND '.join(clauses)}"
+    all_params: list[Any] = [user_id, user_id, *where_params, user_id]
+
+    sql = f"""
+        SELECT COUNT(*) AS total
+        FROM articles a
+        LEFT JOIN sources src ON src.slug = a.source_slug
+        LEFT JOIN user_sources us_src ON us_src.user_id = %s AND us_src.source_slug = a.source_slug
+        LEFT JOIN user_article_state uas ON uas.article_id = a.id AND uas.user_id = %s
+        {where}
+    """
+    with connect(db_path) as conn:
+        row = conn.execute(sql, all_params).fetchone()
+    return int(row["total"] if row is not None else 0)
 
 
 def set_article_status(
@@ -1522,6 +1787,13 @@ def _get_article_row(conn: Any, article_id: int) -> dict[str, Any] | None:
     return _article_dict(row) if row else None
 
 
+def _get_article_row_for_user(
+    conn: Any, article_id: int, user_id: int | None
+) -> dict[str, Any] | None:
+    row = get_visible_article_row(conn, article_id, user_id)
+    return _article_dict(row) if row else None
+
+
 def transition_article_state(  # noqa: PLR0912
     article_id: int,
     new_state: str,
@@ -1539,7 +1811,7 @@ def transition_article_state(  # noqa: PLR0912
 
     init_db(db_path)
     with connect(db_path) as conn:
-        base = _get_article_row(conn, article_id)
+        base = _get_article_row_for_user(conn, article_id, user_id)
         if base is None:
             return None
 
@@ -1622,7 +1894,7 @@ def set_article_starred(
     """Set the starred flag on an article. Raises ValueError if starring a skipped article."""
     init_db(db_path)
     with connect(db_path) as conn:
-        base = _get_article_row(conn, article_id)
+        base = _get_article_row_for_user(conn, article_id, user_id)
         if base is None:
             return None
 
@@ -1675,7 +1947,7 @@ def send_article_later(
 
     init_db(db_path)
     with connect(db_path) as conn:
-        base = _get_article_row(conn, article_id)
+        base = _get_article_row_for_user(conn, article_id, user_id)
         if base is None:
             return None
 

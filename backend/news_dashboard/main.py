@@ -22,6 +22,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as StarletteResponse
@@ -69,10 +70,9 @@ from news_dashboard.ingest import (
     get_user_summary,
     ingest_all,
     list_articles,
-    search_articles,
+    search_articles_page,
     send_article_later,
     set_article_starred,
-    set_article_status,
     sync_sources,
     transition_article_state,
 )
@@ -193,9 +193,31 @@ class CreateSourceRequest(BaseModel):
     category: str = "tech"
     slug: str | None = None
 
+    def validated_slug(self, name: str) -> str:
+        """Return a non-empty slug, normalised from name if not provided."""
+        import re
+
+        raw = self.slug or re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-")
+        slug = re.sub(r"-{2,}", "-", raw).strip("-")[:80]
+        if not slug:
+            raise HTTPException(status_code=400, detail="slug must not be empty")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]", slug):
+            raise HTTPException(
+                status_code=400,
+                detail="slug must contain only lowercase letters, digits, and hyphens",
+            )
+        return slug
+
 
 class SourceCleanupRequest(BaseModel):
     source_slugs: list[str]
+
+
+class OnboardingInterestsRequest(BaseModel):
+    interests: list[str]
+    enabled_source_slugs: list[str] = Field(default_factory=list)
+    disabled_source_slugs: list[str] = Field(default_factory=list)
+    completed: bool = True
 
 
 class IntervalUpdate(BaseModel):
@@ -413,6 +435,22 @@ def otp_login(payload: OTPLoginPayload, response: Response) -> dict[str, Any]:
     return {"id": user["id"], "username": user["username"], "is_admin": bool(user["is_admin"])}
 
 
+@public_router.get("/api/articles/{article_id}/read")
+def mark_read_via_token(article_id: int, token: Annotated[str, Query()]) -> dict[str, Any]:
+    from news_dashboard.digest import verify_read_token
+
+    user_id = verify_read_token(article_id, token)
+    if user_id is None:
+        raise HTTPException(status_code=403, detail="invalid or expired token")
+    try:
+        article = transition_article_state(article_id, "done", user_id=user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not article:
+        raise HTTPException(status_code=404, detail="article not found")
+    return {"status": "marked_read", "article": article}
+
+
 app.include_router(public_router)
 
 
@@ -498,16 +536,22 @@ def auth_me(current_user: Annotated[dict[str, Any], Depends(require_auth)]) -> d
     }
 
 
-@api.post("/api/ingest")
+@api.post("/api/ingest", dependencies=[Depends(require_admin)])
 def ingest(background_tasks: BackgroundTasks) -> dict[str, Any]:
-    results = ingest_all()
-    inserted = sum(v for v in results.values() if v > 0)
+    ingest_result = ingest_all()
+    inserted = sum(v for v in ingest_result.results.values() if v > 0)
     if inserted > 0:
         background_tasks.add_task(prefetch_article_bodies)
-    return {"results": results, "inserted": inserted}
+    return {
+        "results": ingest_result.results,
+        "inserted": inserted,
+        "run_id": ingest_result.run_id,
+        "total_errors": ingest_result.total_errors,
+        "failed_sources": ingest_result.failed_sources,
+    }
 
 
-@api.get("/api/ingest/stream")
+@api.get("/api/ingest/stream", dependencies=[Depends(require_admin)])
 def ingest_stream() -> StreamingResponse:
     return StreamingResponse(stream_ingest_events(), media_type="text/event-stream")
 
@@ -522,16 +566,20 @@ def articles(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict[str, Any]:
+    items = list_articles(
+        status=status,
+        state=state,
+        starred=starred,
+        category=category,
+        limit=limit + 1,
+        offset=offset,
+        user_id=current_user["id"],
+    )
     return {
-        "items": list_articles(
-            status=status,
-            state=state,
-            starred=starred,
-            category=category,
-            limit=limit,
-            offset=offset,
-            user_id=current_user["id"],
-        )
+        "items": items[:limit],
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(items) > limit,
     }
 
 
@@ -540,6 +588,7 @@ def search(  # noqa: PLR0913
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
     q: Annotated[str, Query(description="Space-separated search terms")] = "",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
     states: Annotated[list[str] | None, Query()] = None,
     categories: Annotated[list[str] | None, Query()] = None,
     sources: Annotated[list[str] | None, Query()] = None,
@@ -547,19 +596,32 @@ def search(  # noqa: PLR0913
     include_archived: Annotated[bool, Query()] = False,
     date_range: Annotated[str, Query()] = "all",
 ) -> dict[str, Any]:
-    return {
-        "items": search_articles(
-            q=q.strip(),
-            limit=limit,
-            states=states,
-            categories=categories,
-            sources=sources,
-            starred_only=starred_only,
-            include_archived=include_archived,
-            date_range=date_range,
-            user_id=current_user["id"],
-        )
-    }
+    return search_articles_page(
+        q=q.strip(),
+        limit=limit,
+        offset=offset,
+        states=states,
+        categories=categories,
+        sources=sources,
+        starred_only=starred_only,
+        include_archived=include_archived,
+        date_range=date_range,
+        user_id=current_user["id"],
+    )
+
+
+@api.get("/api/articles/topic-map")
+def articles_topic_map(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.insights import InsightsNotConfiguredError, cluster_recent_articles
+
+    try:
+        clusters = cluster_recent_articles(user_id=current_user["id"])
+    except InsightsNotConfiguredError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    return {"clusters": clusters}
 
 
 @api.get("/api/articles/{article_id}")
@@ -619,20 +681,6 @@ def article_insights(
         raise HTTPException(status_code=404, detail="article not found")
 
     return {"bullets": bullets}
-
-
-@api.get("/api/articles/topic-map")
-def articles_topic_map(
-    current_user: Annotated[dict[str, Any], Depends(require_auth)],
-) -> dict[str, Any]:
-    from news_dashboard.insights import InsightsNotConfiguredError, cluster_recent_articles
-
-    try:
-        clusters = cluster_recent_articles(user_id=current_user["id"])
-    except InsightsNotConfiguredError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-
-    return {"clusters": clusters}
 
 
 @api.get("/api/articles/{article_id}/perspectives")
@@ -783,6 +831,8 @@ def _notify_share_recipient(*, to_user_id: int, sender: str, article_title: str)
         to_user_id,
         f"{sender} shared an article",
         article_title,
+        target_url="/shared",
+        tag="shared-article",
     )
 
 
@@ -894,19 +944,288 @@ def add_share_message(
     return add_message(share_id, current_user["id"], payload.message)
 
 
-@api.get("/api/articles/{article_id}/read")
-def mark_read_via_token(article_id: int, token: Annotated[str, Query()]) -> dict[str, Any]:
-    from news_dashboard.digest import verify_read_token
+INTEREST_GROUPS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "ai",
+        "label": "AI",
+        "options": (
+            {"id": "agents", "label": "Agents"},
+            {"id": "model-releases", "label": "Model releases"},
+            {"id": "evals", "label": "Evals"},
+            {"id": "product-news", "label": "Product news"},
+        ),
+    },
+    {
+        "id": "engineering",
+        "label": "Engineering",
+        "options": (
+            {"id": "python", "label": "Python"},
+            {"id": "infra", "label": "Infrastructure"},
+            {"id": "cloud", "label": "Cloud"},
+            {"id": "security", "label": "Security"},
+        ),
+    },
+)
 
-    if not verify_read_token(article_id, token):
-        raise HTTPException(status_code=403, detail="invalid or expired token")
-    try:
-        article = set_article_status(article_id, "read")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if not article:
-        raise HTTPException(status_code=404, detail="article not found")
-    return {"status": "marked_read", "article": article}
+
+def _interest_options() -> set[str]:
+    return {str(option["id"]) for group in INTEREST_GROUPS for option in group["options"]}
+
+
+def _source_recommendations(user_id: int, interests: list[str]) -> list[dict[str, Any]]:
+    from news_dashboard.ingest import sync_sources
+    from news_dashboard.sources import DEFAULT_SOURCES
+
+    selected = set(interests)
+    sync_sources()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT source_slug, enabled FROM user_sources WHERE user_id = %s",
+            (user_id,),
+        ).fetchall()
+    subscriptions = {str(row["source_slug"]): bool(row["enabled"]) for row in rows}
+
+    recommendations: list[dict[str, Any]] = []
+    for source in DEFAULT_SOURCES:
+        tags = set(source.interest_tags)
+        matched = sorted(selected & (tags | {source.category}))
+        score = float((len(selected & tags) * 100) + (25 if source.category in selected else 0))
+        score += source.priority / 100
+        recommended = bool(matched)
+        if not selected:
+            score = source.priority / 100
+            recommended = False
+        reason = (
+            f"Matches {', '.join(matched)}" if matched else f"Baseline {source.category} source"
+        )
+        recommendations.append(
+            {
+                "source_slug": source.slug,
+                "source_name": source.name,
+                "kind": source.kind,
+                "url": source.url,
+                "category": source.category,
+                "matched_interests": matched,
+                "reason": reason,
+                "recommended": recommended,
+                "subscribed": subscriptions.get(source.slug, False),
+                "priority": source.priority,
+                "_score": score,
+                "_priority": source.priority,
+            }
+        )
+
+    recommendations.sort(
+        key=lambda item: (
+            float(item["_score"]),
+            bool(item["subscribed"]),
+            int(item["_priority"]),
+            str(item["source_name"]),
+        ),
+        reverse=True,
+    )
+    for item in recommendations:
+        item.pop("_score")
+        item.pop("_priority")
+    return recommendations
+
+
+@api.get("/api/onboarding/status")
+def onboarding_status(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    uid = int(current_user["id"])
+    init_db()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT completed_at FROM user_interest_profiles WHERE user_id = %s",
+            (uid,),
+        ).fetchone()
+    completed = row is not None and row["completed_at"] is not None
+    return {"completed": completed}
+
+
+@api.get("/api/onboarding/interests")
+def onboarding_interests(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> list[dict[str, Any]]:
+    _ = current_user
+    return [
+        {"id": option["id"], "label": option["label"], "description": option.get("description", "")}
+        for group in INTEREST_GROUPS
+        for option in group["options"]
+    ]
+
+
+class OnboardingRecommendationsRequest(BaseModel):
+    interest_ids: list[str]
+
+
+class OnboardingProfileRequest(BaseModel):
+    interest_ids: list[str]
+    enabled_slugs: list[str] = Field(default_factory=list)
+
+
+def _frontend_recommendations(user_id: int, interests: list[str]) -> list[dict[str, Any]]:
+    """Return source recommendations using the frontend field-name contract (slug, name)."""
+    raw = _source_recommendations(user_id, interests)
+    return [
+        {
+            "slug": item["source_slug"],
+            "name": item["source_name"],
+            "category": item["category"],
+            "kind": item["kind"],
+            "url": item["url"],
+            "matched_interests": item["matched_interests"],
+            "reason": item["reason"],
+            "recommended": item["recommended"],
+            "enabled": 1 if item["subscribed"] else 0,
+            "priority": item["priority"],
+        }
+        for item in raw
+    ]
+
+
+@api.post("/api/onboarding/recommendations")
+def onboarding_recommendations(
+    payload: OnboardingRecommendationsRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> list[dict[str, Any]]:
+    uid = int(current_user["id"])
+    init_db()
+    return _frontend_recommendations(uid, payload.interest_ids)
+
+
+@api.post("/api/onboarding/profile")
+def save_onboarding_profile(
+    payload: OnboardingProfileRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.ingest import sync_sources
+
+    valid_interests = _interest_options()
+    interests = list(dict.fromkeys(payload.interest_ids))
+    invalid = [i for i in interests if i not in valid_interests]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"unknown interests: {', '.join(invalid)}")
+
+    uid = int(current_user["id"])
+    enabled_slugs = list(dict.fromkeys(payload.enabled_slugs))
+    sync_sources()
+    with connect() as conn:
+        if enabled_slugs:
+            rows = conn.execute(
+                "SELECT slug FROM sources WHERE owner_user_id IS NULL AND slug = ANY(%s)",
+                (enabled_slugs,),
+            ).fetchall()
+            allowed = {str(row["slug"]) for row in rows}
+            missing = [slug for slug in enabled_slugs if slug not in allowed]
+            if missing:
+                raise HTTPException(
+                    status_code=404, detail=f"unknown global sources: {', '.join(missing)}"
+                )
+
+        conn.execute(
+            """
+            INSERT INTO user_interest_profiles(user_id, interests, completed_at, updated_at)
+            VALUES (%s, %s, NOW(), NOW())
+            ON CONFLICT(user_id) DO UPDATE SET
+              interests = excluded.interests,
+              completed_at = NOW(),
+              updated_at = NOW()
+            """,
+            (uid, Jsonb(interests)),
+        )
+        for slug in enabled_slugs:
+            conn.execute(
+                """
+                INSERT INTO user_sources(user_id, source_slug, enabled)
+                VALUES (%s, %s, TRUE)
+                ON CONFLICT(user_id, source_slug) DO UPDATE SET enabled = TRUE
+                """,
+                (uid, slug),
+            )
+
+    return {"completed": True}
+
+
+@api.get("/api/onboarding/source-recommendations")
+def onboarding_source_recommendations(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    uid = int(current_user["id"])
+    init_db()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT interests FROM user_interest_profiles WHERE user_id = %s",
+            (uid,),
+        ).fetchone()
+    interests = list(row["interests"]) if row else []
+    return {"items": _source_recommendations(uid, [str(interest) for interest in interests])}
+
+
+@api.post("/api/onboarding/interests")
+def save_onboarding_interests(
+    payload: OnboardingInterestsRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.ingest import sync_sources
+
+    valid_interests = _interest_options()
+    interests = list(dict.fromkeys(payload.interests))
+    invalid = [interest for interest in interests if interest not in valid_interests]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"unknown interests: {', '.join(invalid)}")
+
+    uid = int(current_user["id"])
+    requested = list(dict.fromkeys(payload.enabled_source_slugs + payload.disabled_source_slugs))
+    sync_sources()
+    with connect() as conn:
+        if requested:
+            rows = conn.execute(
+                "SELECT slug FROM sources WHERE owner_user_id IS NULL AND slug = ANY(%s)",
+                (requested,),
+            ).fetchall()
+            allowed = {str(row["slug"]) for row in rows}
+            missing = [slug for slug in requested if slug not in allowed]
+            if missing:
+                detail = f"unknown global sources: {', '.join(missing)}"
+                raise HTTPException(status_code=404, detail=detail)
+
+        conn.execute(
+            """
+            INSERT INTO user_interest_profiles(user_id, interests, completed_at, updated_at)
+            VALUES (%s, %s, CASE WHEN %s THEN NOW() ELSE NULL END, NOW())
+            ON CONFLICT(user_id) DO UPDATE SET
+              interests = excluded.interests,
+              completed_at = excluded.completed_at,
+              updated_at = NOW()
+            """,
+            (uid, Jsonb(interests), payload.completed),
+        )
+        for slug in payload.enabled_source_slugs:
+            conn.execute(
+                """
+                INSERT INTO user_sources(user_id, source_slug, enabled)
+                VALUES (%s, %s, TRUE)
+                ON CONFLICT(user_id, source_slug) DO UPDATE SET enabled = TRUE
+                """,
+                (uid, slug),
+            )
+        for slug in payload.disabled_source_slugs:
+            conn.execute(
+                """
+                INSERT INTO user_sources(user_id, source_slug, enabled)
+                VALUES (%s, %s, FALSE)
+                ON CONFLICT(user_id, source_slug) DO UPDATE SET enabled = FALSE
+                """,
+                (uid, slug),
+            )
+
+    return {
+        "interests": interests,
+        "items": _source_recommendations(uid, interests),
+    }
 
 
 @api.get("/api/sources")
@@ -942,21 +1261,32 @@ def create_source(
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
 ) -> dict[str, Any]:
     """Create a private custom source owned by the current user."""
-    import re
+    from urllib.parse import urlparse
 
     uid = current_user["id"]
-    slug = payload.slug or re.sub(r"[^a-z0-9-]", "-", payload.name.lower()).strip("-")
+
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="name must not be empty")
+
+    parsed = urlparse(payload.url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="url must use http or https scheme")
+    if not parsed.netloc:
+        raise HTTPException(status_code=400, detail="url must include a valid host")
+
+    slug = payload.validated_slug(payload.name)
+
     init_db()
     with connect() as conn:
         existing = conn.execute("SELECT 1 FROM sources WHERE slug = %s", (slug,)).fetchone()
         if existing:
-            raise HTTPException(status_code=409, detail=f"source slug {slug!r} already exists")
+            raise HTTPException(status_code=409, detail=f"source slug '{slug}' already exists")
         conn.execute(
             """
             INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)
             VALUES (%s, %s, %s, %s, 'rss_feed', 0, TRUE, %s)
             """,
-            (slug, payload.name, payload.url, payload.category, uid),
+            (slug, payload.name.strip(), payload.url, payload.category, uid),
         )
         row = conn.execute("SELECT * FROM sources WHERE slug = %s", (slug,)).fetchone()
     return row_to_dict(row)
@@ -982,8 +1312,10 @@ def delete_source(
 
 
 @api.get("/api/sources/health")
-def sources_health() -> dict[str, Any]:
-    return {"items": list_source_health()}
+def sources_health(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    return {"items": list_source_health(user_id=int(current_user["id"]))}
 
 
 @api.get("/api/sources/cleanup-suggestions")
@@ -1043,6 +1375,51 @@ def source_cleanup(
     }
 
 
+# ── Personalization nudges ────────────────────────────────────────────────────
+
+
+class NudgeActionRequest(BaseModel):
+    nudge_id: str
+
+
+class NudgeDismissRequest(BaseModel):
+    nudge_id: str
+    cooldown_days: int = 7
+
+
+@api.get("/api/personalization/nudges")
+def get_personalization_nudges(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.personalization_nudges import generate_nudges
+
+    return {"items": generate_nudges(int(current_user["id"]))}
+
+
+@api.post("/api/personalization/nudges/apply")
+def apply_personalization_nudge(
+    payload: NudgeActionRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.personalization_nudges import apply_nudge
+
+    return apply_nudge(int(current_user["id"]), payload.nudge_id)
+
+
+@api.post("/api/personalization/nudges/dismiss")
+def dismiss_personalization_nudge(
+    payload: NudgeDismissRequest,
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.personalization_nudges import dismiss_nudge
+
+    return dismiss_nudge(
+        int(current_user["id"]),
+        payload.nudge_id,
+        cooldown_days=payload.cooldown_days,
+    )
+
+
 @api.patch("/api/sources/{slug}/enabled")
 def set_source_enabled(
     slug: str,
@@ -1079,7 +1456,10 @@ def set_source_enabled(
     return {**row_to_dict(row), "subscribed": payload.enabled}
 
 
-@api.get("/api/scheduler/status")
+_admin_dep = [Depends(require_admin)]
+
+
+@api.get("/api/scheduler/status", dependencies=_admin_dep)
 def scheduler_status() -> dict[str, Any]:
     interval_enabled = is_ingest_interval_enabled()
     next_run = get_next_ingest_at()
@@ -1091,9 +1471,6 @@ def scheduler_status() -> dict[str, Any]:
         "interval_ingest_enabled": interval_enabled,
         "ingest_authority": "in_process" if interval_enabled else "external",
     }
-
-
-_admin_dep = [Depends(require_admin)]
 
 
 @api.post("/api/scheduler/interval", dependencies=_admin_dep)
@@ -1132,6 +1509,13 @@ def ingest_run_sources(run_id: int) -> dict[str, Any]:
     if run_sources is None:
         raise HTTPException(status_code=404, detail="ingest run not found")
     return {"items": run_sources}
+
+
+@api.get("/api/scheduler/job-runs", dependencies=_admin_dep)
+def list_scheduled_job_runs() -> dict[str, Any]:
+    from news_dashboard.scheduled_job_history import list_latest_job_runs
+
+    return {"items": list_latest_job_runs()}
 
 
 @api.get("/api/health/details", dependencies=_admin_dep)
@@ -1378,11 +1762,13 @@ def briefings_chat(
 # ── Notification settings & push subscriptions ───────────────────────────────
 
 _BRIEFING_TIME_RE = __import__("re").compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_NOTIFICATION_COLS = "briefing_time, briefing_push_enabled, briefing_timezone"
 
 
 class NotificationSettingsUpdate(BaseModel):
     briefing_time: str | None = None
     push_enabled: bool | None = None
+    briefing_timezone: str | None = None
 
 
 class PushSubscribeRequest(BaseModel):
@@ -1409,6 +1795,15 @@ def reading_dna_endpoint(
     days: Annotated[int, Query(ge=1, le=365)] = 30,
 ) -> dict[str, Any]:
     return reading_dna(current_user["id"], days=days)
+
+
+@api.get("/api/users/me/export")
+def export_user_data(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.export import assemble_user_export
+
+    return assemble_user_export(current_user["id"])
 
 
 @api.get("/api/users/me/recommendation-preferences")
@@ -1448,13 +1843,14 @@ def get_notification_settings(
     uid = current_user["id"]
     with connect() as conn:
         row = conn.execute(
-            "SELECT briefing_time, briefing_push_enabled FROM users WHERE id = %s",
+            f"SELECT {_NOTIFICATION_COLS} FROM users WHERE id = %s",
             (uid,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
     return {
         "briefing_time": row["briefing_time"] or "09:00",
+        "briefing_timezone": row["briefing_timezone"] or "UTC",
         "push_enabled": bool(row["briefing_push_enabled"]),
         "vapid_public_key": get_vapid_public_key(),
     }
@@ -1473,6 +1869,14 @@ def update_notification_settings(
         updates["briefing_time"] = payload.briefing_time
     if payload.push_enabled is not None:
         updates["briefing_push_enabled"] = payload.push_enabled
+    if payload.briefing_timezone is not None:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(payload.briefing_timezone)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise HTTPException(status_code=422, detail="unknown timezone") from None
+        updates["briefing_timezone"] = payload.briefing_timezone
     if updates:
         set_clauses = ", ".join(f"{k} = %s" for k in updates)
         with connect() as conn:
@@ -1482,13 +1886,14 @@ def update_notification_settings(
             )
     with connect() as conn:
         row = conn.execute(
-            "SELECT briefing_time, briefing_push_enabled FROM users WHERE id = %s",
+            f"SELECT {_NOTIFICATION_COLS} FROM users WHERE id = %s",
             (uid,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
     return {
         "briefing_time": row["briefing_time"] or "09:00",
+        "briefing_timezone": row["briefing_timezone"] or "UTC",
         "push_enabled": bool(row["briefing_push_enabled"]),
     }
 
@@ -1498,7 +1903,12 @@ def push_subscribe(
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
     payload: PushSubscribeRequest,
 ) -> dict[str, Any]:
-    from news_dashboard.push import save_push_subscription
+    from news_dashboard.push import save_push_subscription, validate_push_subscription
+
+    try:
+        validate_push_subscription(payload.endpoint, payload.p256dh, payload.auth)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     save_push_subscription(
         current_user["id"],
@@ -1624,6 +2034,16 @@ def delete_goal_endpoint(
     return {"deleted": True}
 
 
+@api.get("/api/quizzes/candidates")
+def get_quiz_candidates_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> dict[str, Any]:
+    from news_dashboard.quiz import get_quiz_candidate_articles
+
+    candidates = get_quiz_candidate_articles(current_user["id"])
+    return {"candidates": candidates}
+
+
 @api.get("/api/quizzes/latest")
 def get_latest_quiz_endpoint(
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
@@ -1634,6 +2054,17 @@ def get_latest_quiz_endpoint(
     if not quiz:
         raise HTTPException(status_code=404, detail="no quiz available")
     return quiz
+
+
+@api.get("/api/quizzes")
+def list_quizzes_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 12,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    from news_dashboard.quiz import list_quizzes
+
+    return {"items": list_quizzes(current_user["id"], limit=limit, offset=offset)}
 
 
 @api.post("/api/quizzes/generate")

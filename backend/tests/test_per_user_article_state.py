@@ -56,6 +56,29 @@ def _make_user(db_path: Path | str, username: str = "alice") -> int:
     return int(user["id"])
 
 
+def _insert_private_article(db_path: Path | str, *, owner_user_id: int) -> int:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO sources(slug, name, url, category, kind, owner_user_id)
+            VALUES ('owner-private', 'Owner Private', 'https://private.example.com/feed.xml',
+                    'private', 'rss_feed', %s)
+            """,
+            (owner_user_id,),
+        )
+        row = conn.execute(
+            """
+            INSERT INTO articles(url, canonical_url, title, source_slug, source_name,
+                                 category, kind, state)
+            VALUES ('https://private.example.com/art', 'https://private.example.com/art',
+                    'Private Article', 'owner-private', 'Owner Private',
+                    'private', 'rss_feed', 'today')
+            RETURNING id
+            """
+        ).fetchone()
+    return int(row["id"] if isinstance(row, dict) else row[0])
+
+
 # ── implicit today (no UAS row yet) ──────────────────────────────────────────
 
 
@@ -163,11 +186,55 @@ def test_invalid_transition_raises(tmp_path: Path) -> None:
         transition_article_state(aid, "skipped", db_path=db, user_id=uid)
 
 
+def test_later_to_skipped_with_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid = _make_user(db)
+    aid = _insert_article(db)
+
+    send_article_later(aid, days=2, db_path=db, user_id=uid)
+    result = transition_article_state(aid, "skipped", db_path=db, user_id=uid)
+    assert result is not None
+    assert result["state"] == "skipped"
+    assert result["skipped_at"] is not None
+
+
+def test_later_to_skipped_is_per_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid_a = _make_user(db, "alice")
+    uid_b = _make_user(db, "bob")
+    aid = _insert_article(db)
+
+    # Both users snooze the article so both have a UAS row in 'later' state.
+    send_article_later(aid, days=2, db_path=db, user_id=uid_a)
+    send_article_later(aid, days=2, db_path=db, user_id=uid_b)
+
+    # Alice skips it from 'later'.
+    transition_article_state(aid, "skipped", db_path=db, user_id=uid_a)
+
+    skipped = list_articles(state="skipped", db_path=db, user_id=uid_a)
+    assert any(a["id"] == aid for a in skipped)
+
+    # Bob's view is unchanged — still in 'later'.
+    later = list_articles(state="later", db_path=db, user_id=uid_b)
+    assert any(a["id"] == aid for a in later)
+
+
 def test_starred_cannot_be_skipped(tmp_path: Path) -> None:
     db = _setup_db(tmp_path)
     uid = _make_user(db)
     aid = _insert_article(db)
 
+    set_article_starred(aid, True, db_path=db, user_id=uid)
+    with pytest.raises(ValueError, match="starred"):
+        transition_article_state(aid, "skipped", db_path=db, user_id=uid)
+
+
+def test_starred_later_cannot_be_skipped_with_user(tmp_path: Path) -> None:
+    db = _setup_db(tmp_path)
+    uid = _make_user(db)
+    aid = _insert_article(db)
+
+    send_article_later(aid, days=2, db_path=db, user_id=uid)
     set_article_starred(aid, True, db_path=db, user_id=uid)
     with pytest.raises(ValueError, match="starred"):
         transition_article_state(aid, "skipped", db_path=db, user_id=uid)
@@ -217,6 +284,39 @@ def test_snooze_cannot_snooze_done(tmp_path: Path) -> None:
     transition_article_state(aid, "done", db_path=db, user_id=uid)
     with pytest.raises(ValueError, match="cannot snooze"):
         send_article_later(aid, days=1, db_path=db, user_id=uid)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["state", "star", "later"],
+)
+def test_article_state_operations_hide_other_users_private_source(
+    tmp_path: Path, operation: str
+) -> None:
+    db = _setup_db(tmp_path)
+    owner_id = _make_user(db, "owner")
+    other_id = _make_user(db, "other")
+    aid = _insert_private_article(db, owner_user_id=owner_id)
+
+    if operation == "state":
+        result = transition_article_state(aid, "done", db_path=db, user_id=other_id)
+    elif operation == "star":
+        result = set_article_starred(aid, True, db_path=db, user_id=other_id)
+    else:
+        result = send_article_later(aid, days=1, db_path=db, user_id=other_id)
+
+    assert result is None
+    with connect(db) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM user_article_state
+            WHERE article_id = %s AND user_id = %s
+            """,
+            (aid, other_id),
+        ).fetchone()
+    assert row["count"] == 0
+    assert transition_article_state(aid, "done", db_path=db, user_id=owner_id) is not None
 
 
 def test_snooze_returns_to_today_after_expiry(tmp_path: Path) -> None:
@@ -318,6 +418,49 @@ def test_api_articles_uses_user_state(pg_clean: str, monkeypatch: pytest.MonkeyP
             assert resp.status_code == 200
             ids = [a["id"] for a in resp.json()["items"]]
             assert aid in ids
+    finally:
+        app.dependency_overrides.pop(require_auth, None)
+
+
+def test_api_articles_exposes_pagination_metadata(
+    pg_clean: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/articles tells clients when another queue page is available."""
+    monkeypatch.setenv("DATABASE_URL", str(pg_clean))
+    sync_sources(pg_clean)
+
+    from fastapi.testclient import TestClient
+
+    from news_dashboard.auth import require_auth
+    from news_dashboard.main import app
+
+    uid = _make_user(pg_clean, "pagination-user")
+    for index in range(3):
+        _insert_article(pg_clean, url_suffix=f"page-{index}")
+
+    fake_user = {"id": uid, "username": "pagination-user", "email": None, "is_admin": False}
+    app.dependency_overrides[require_auth] = lambda: fake_user
+
+    try:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            first = client.get("/api/articles", params={"state": "today", "limit": 2})
+            assert first.status_code == 200
+            first_payload = first.json()
+            assert len(first_payload["items"]) == 2
+            assert first_payload["limit"] == 2
+            assert first_payload["offset"] == 0
+            assert first_payload["has_more"] is True
+
+            second = client.get(
+                "/api/articles",
+                params={"state": "today", "limit": 2, "offset": 2},
+            )
+            assert second.status_code == 200
+            second_payload = second.json()
+            assert len(second_payload["items"]) == 1
+            assert second_payload["limit"] == 2
+            assert second_payload["offset"] == 2
+            assert second_payload["has_more"] is False
     finally:
         app.dependency_overrides.pop(require_auth, None)
 

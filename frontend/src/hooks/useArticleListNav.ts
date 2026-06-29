@@ -19,6 +19,7 @@ export function useArticleListNav(
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const cur = list[focused];
 
@@ -42,7 +43,7 @@ export function useArticleListNav(
       } else if (e.key === 'e' && cur) {
         mutations.setState(cur, 'archived', 'Archived');
       } else if (e.key === 'o' && cur) {
-        window.open(cur.url, '_blank');
+        window.open(cur.url, '_blank', 'noopener,noreferrer');
       }
     };
 

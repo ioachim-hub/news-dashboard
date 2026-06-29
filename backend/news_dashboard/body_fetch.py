@@ -15,6 +15,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+from news_dashboard.article_visibility import get_visible_article_row
 from news_dashboard.db import connect, init_db, row_to_dict
 from news_dashboard.scraper import TIMEOUT_SECS, USER_AGENT
 
@@ -310,13 +311,14 @@ def get_article(
 ) -> dict[str, Any] | None:
     """Fetch a single article by ID, stripping internal columns.
 
-    When user_id is given the per-user state from user_article_state is merged
-    in so that state/starred/timestamps reflect the calling user, not the
-    global articles table defaults.
+    When user_id is given the article must be visible to that user
+    (global source not disabled, or private source owned by the user).
+    Returns None for invisible articles as well as non-existent ones.
+    Per-user state from user_article_state is merged in for the returned dict.
     """
     init_db(db_path)
     with connect(db_path) as conn:
-        row = conn.execute("SELECT * FROM articles WHERE id = %s", (article_id,)).fetchone()
+        row = get_visible_article_row(conn, article_id, user_id)
         if row is None:
             return None
         return _article_from_row(row, conn, article_id, user_id)
@@ -372,7 +374,7 @@ def fetch_and_cache_body(
     """
     init_db(db_path)
     with connect(db_path) as conn:
-        row = conn.execute("SELECT * FROM articles WHERE id = %s", (article_id,)).fetchone()
+        row = get_visible_article_row(conn, article_id, user_id)
         if row is None:
             return None
         row_d = row_to_dict(row)

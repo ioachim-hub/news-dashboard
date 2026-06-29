@@ -58,6 +58,7 @@ export interface ShareableUser {
 export interface ReceivedShare {
   id: number;
   note?: string | null;
+  context_summary?: string | null;
   created_at: string;
   read_at?: string | null;
   from_user_id: number;
@@ -67,6 +68,29 @@ export interface ReceivedShare {
   article_url: string;
   article_source_name: string;
   article_summary?: string | null;
+}
+
+export interface ShareAnnotation {
+  id: number;
+  share_id: number;
+  highlighted_text: string;
+  offset_chars: number;
+  note?: string | null;
+  created_at: string;
+}
+
+export interface ShareMessage {
+  id: number;
+  share_id: number;
+  user_id: number;
+  username: string;
+  message: string;
+  created_at: string;
+}
+
+export interface ShareDetail extends ReceivedShare {
+  annotations: ShareAnnotation[];
+  messages: ShareMessage[];
 }
 
 export interface Source {
@@ -265,12 +289,14 @@ export type BriefingCreateResponse = Briefing | { status: 'no_candidates' };
 
 export interface NotificationSettings {
   briefing_time: string;
+  briefing_timezone: string;
   push_enabled: boolean;
   vapid_public_key: string | null;
 }
 
 export interface NotificationSettingsUpdate {
   briefing_time?: string;
+  briefing_timezone?: string;
   push_enabled?: boolean;
 }
 
@@ -307,6 +333,19 @@ export interface RecommendationPreferences {
   category_weights: Record<string, number>;
   novelty_weight: number;
   recomputed?: number;
+}
+
+export interface PersonalizationNudge {
+  id: string;
+  kind: 'source' | 'topic';
+  title: string;
+  message: string;
+  reason: string;
+  skip_rate: number;
+  articles_last_30_days: number;
+  action: 'disable_source' | 'reduce_topic_weight';
+  target: string;
+  target_label: string;
 }
 
 export interface AnalyticsSummary {
@@ -362,6 +401,16 @@ export interface ReadingGoal {
   created_at: string;
 }
 
+export interface QuizCandidate {
+  id: number;
+  title: string;
+  category: string | null;
+  source_name: string | null;
+  done_at: string | null;
+  goal_matched: boolean;
+  matched_keywords: string[];
+}
+
 export interface QuizQuestion {
   question: string;
   options: string[];
@@ -377,6 +426,19 @@ export interface Quiz {
   created_at: string;
   questions: QuizQuestion[];
   score: number | null;
+  submitted_at?: string | null;
+  submitted_answers?: QuizQuestion[] | null;
+  completed_result?: QuizResult | null;
+}
+
+export interface QuizHistoryItem {
+  id: number;
+  user_id: number;
+  created_at: string;
+  score: number | null;
+  total: number;
+  completed: boolean;
+  submitted_at?: string | null;
 }
 
 export interface QuizResult {
@@ -405,4 +467,32 @@ export interface TopicCluster {
 
 export interface TopicMapResponse {
   clusters: TopicCluster[];
+}
+
+export interface OnboardingInterest {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface OnboardingSourceRecommendation {
+  slug: string;
+  name: string;
+  category: string;
+  kind: string;
+  url: string;
+  matched_interests: string[];
+  reason: string;
+  recommended: boolean;
+  enabled: number;
+  priority: number;
+}
+
+export interface OnboardingStatus {
+  completed: boolean;
+}
+
+export interface SaveOnboardingProfileRequest {
+  interest_ids: string[];
+  enabled_slugs: string[];
 }

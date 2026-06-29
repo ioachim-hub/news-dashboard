@@ -13,6 +13,9 @@ class SourceDefinition:
     priority: int = 50
     enabled: bool = True
     lang: str = "en"
+    interest_tags: tuple[str, ...] = ()
+    description: str | None = None
+    owner_user_id: int | None = None
 
 
 DEFAULT_SOURCES: list[SourceDefinition] = [
@@ -23,9 +26,15 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://blog.python.org/feeds/posts/default",
         "python",
         priority=90,
+        interest_tags=("python", "product-news"),
     ),
     SourceDefinition(
-        "astral-blog", "Astral Blog", "https://astral.sh/blog/rss.xml", "python", priority=85
+        "astral-blog",
+        "Astral Blog",
+        "https://astral.sh/blog/rss.xml",
+        "python",
+        priority=85,
+        interest_tags=("python", "infra"),
     ),
     SourceDefinition(
         "ruff-releases",
@@ -34,6 +43,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         85,
+        interest_tags=("python", "infra", "model-releases"),
     ),
     SourceDefinition(
         "uv-releases",
@@ -42,6 +52,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         85,
+        interest_tags=("python", "infra", "model-releases"),
     ),
     SourceDefinition(
         "mypy-releases",
@@ -50,6 +61,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         80,
+        interest_tags=("python", "infra", "model-releases"),
     ),
     SourceDefinition(
         "pyright-releases",
@@ -58,6 +70,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         80,
+        interest_tags=("python", "infra", "model-releases"),
     ),
     SourceDefinition(
         "scikit-learn-releases",
@@ -66,6 +79,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         75,
+        interest_tags=("python", "model-releases"),
     ),
     SourceDefinition(
         "scipy-releases",
@@ -74,9 +88,15 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "python",
         "github_release_feed",
         75,
+        interest_tags=("python", "model-releases"),
     ),
     SourceDefinition(
-        "pytorch-blog", "PyTorch Blog", "https://pytorch.org/blog/feed.xml", "python", priority=80
+        "pytorch-blog",
+        "PyTorch Blog",
+        "https://pytorch.org/blog/feed.xml",
+        "python",
+        priority=80,
+        interest_tags=("python", "model-releases", "infra"),
     ),
     SourceDefinition(
         "tensorflow-blog",
@@ -84,6 +104,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://blog.tensorflow.org/feeds/posts/default",
         "python",
         priority=70,
+        interest_tags=("python", "model-releases", "infra"),
     ),
     # ── AI / LLM / agents ───────────────────────────────────────────────────
     SourceDefinition(
@@ -93,9 +114,15 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "ai-llm",
         "scraped_page",
         90,
+        interest_tags=("agents", "model-releases", "evals", "product-news"),
     ),
     SourceDefinition(
-        "openai-blog", "OpenAI Blog", "https://openai.com/news/rss.xml", "ai-llm", priority=85
+        "openai-blog",
+        "OpenAI Blog",
+        "https://openai.com/news/rss.xml",
+        "ai-llm",
+        priority=85,
+        interest_tags=("agents", "model-releases", "evals", "product-news"),
     ),
     SourceDefinition(
         "google-ai-blog",
@@ -103,6 +130,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://blog.google/technology/ai/rss/",
         "ai-llm",
         priority=75,
+        interest_tags=("model-releases", "product-news", "cloud"),
     ),
     SourceDefinition(
         "huggingface-blog",
@@ -110,6 +138,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://huggingface.co/blog/feed.xml",
         "ai-llm",
         priority=80,
+        interest_tags=("model-releases", "infra", "evals"),
     ),
     SourceDefinition(
         "augment-code-blog",
@@ -117,6 +146,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://www.augmentcode.com/blog/rss.xml",
         "ai-llm",
         priority=70,
+        interest_tags=("agents", "product-news"),
     ),
     SourceDefinition(
         "simon-willison",
@@ -124,12 +154,23 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://simonwillison.net/atom/everything/",
         "ai-llm",
         priority=85,
+        interest_tags=("agents", "model-releases", "evals", "python"),
     ),
     SourceDefinition(
-        "latent-space", "Latent Space", "https://www.latent.space/feed", "ai-llm", priority=65
+        "latent-space",
+        "Latent Space",
+        "https://www.latent.space/feed",
+        "ai-llm",
+        priority=65,
+        interest_tags=("agents", "model-releases", "product-news"),
     ),
     SourceDefinition(
-        "import-ai", "Import AI", "https://importai.substack.com/feed", "ai-llm", priority=65
+        "import-ai",
+        "Import AI",
+        "https://importai.substack.com/feed",
+        "ai-llm",
+        priority=65,
+        interest_tags=("evals", "model-releases"),
     ),
     SourceDefinition(
         "infoq-ai-ml",
@@ -137,6 +178,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://feed.infoq.com/ai-ml-data-eng",
         "ai-llm",
         priority=60,
+        interest_tags=("infra", "cloud", "model-releases"),
     ),
     SourceDefinition(
         "langchain-releases",
@@ -145,6 +187,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "agents",
         "github_release_feed",
         80,
+        interest_tags=("agents", "python", "model-releases"),
     ),
     SourceDefinition(
         "langgraph-releases",
@@ -153,6 +196,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "agents",
         "github_release_feed",
         85,
+        interest_tags=("agents", "python", "model-releases"),
     ),
     SourceDefinition(
         "langfuse-releases",
@@ -161,6 +205,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "agents",
         "github_release_feed",
         80,
+        interest_tags=("agents", "infra", "model-releases"),
     ),
     # ── Cloud / infra ────────────────────────────────────────────────────────
     SourceDefinition(
@@ -169,6 +214,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://kubernetes.io/feed.xml",
         "cloud-infra",
         priority=65,
+        interest_tags=("cloud", "infra"),
     ),
     SourceDefinition(
         "docker-blog",
@@ -176,6 +222,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://www.docker.com/blog/feed/",
         "cloud-infra",
         priority=65,
+        interest_tags=("cloud", "infra"),
     ),
     SourceDefinition(
         "aws-ml-blog",
@@ -183,6 +230,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://aws.amazon.com/blogs/machine-learning/feed/",
         "cloud-infra",
         priority=60,
+        interest_tags=("cloud", "infra", "model-releases"),
     ),
     # ── Engineering ──────────────────────────────────────────────────────────
     SourceDefinition(
@@ -191,6 +239,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://newsletter.pragmaticengineer.com/feed",
         "engineering",
         priority=60,
+        interest_tags=("product-news", "infra"),
     ),
     SourceDefinition(
         "github-changelog",
@@ -198,6 +247,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://github.blog/changelog/feed/",
         "engineering",
         priority=65,
+        interest_tags=("product-news", "infra"),
     ),
     SourceDefinition(
         "github-engineering",
@@ -205,6 +255,7 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         "https://github.blog/engineering/feed/",
         "engineering",
         priority=55,
+        interest_tags=("infra", "cloud"),
     ),
     # ── Trending / repositories ───────────────────────────────────────────────
     SourceDefinition(

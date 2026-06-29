@@ -5,6 +5,11 @@ name: PR test metrics
 # diffs the two. Lets you see at a glance whether a PR moves coverage or makes
 # the suite slower before you merge.
 #
+# This workflow measures the FULL backend + frontend suites (same as the
+# nightly lane) so coverage numbers are comprehensive. The per-PR CI (ci.yml)
+# uses change-aware routing; metrics here intentionally run everything for an
+# accurate diff regardless of which files changed.
+#
 # Strategy: a 2-entry matrix runs the suite once per ref and uploads a small
 # metrics artifact; a final job downloads both and renders the comparison.
 

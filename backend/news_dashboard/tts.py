@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DATA_DIR = Path("/data")
 _VOICE = "alloy"
 _MODEL = "tts-1"
+# Podcast audio uses the newer, more natural and steerable model and a pair of
+# clearly distinct voices so the two co-hosts are easy to tell apart.
+_PODCAST_MODEL = "gpt-4o-mini-tts"
+_ALEX_VOICE = "onyx"
+_TAYLOR_VOICE = "nova"
 _MAX_CHARS = 4096
 
 
@@ -99,9 +104,11 @@ def generate_audio(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    from news_dashboard.ai_client import get_openai_client
+    from news_dashboard.ai_client import get_openai_client, tts_timeout_seconds
 
-    client = get_openai_client(api_key=api_key, base_url=base_url)
+    client = get_openai_client(
+        api_key=api_key, base_url=base_url, timeout_seconds=tts_timeout_seconds()
+    )
     logger.info("Generating TTS audio for article %d (%d chars)", article_id, len(text))
     # audio/speech does not accept Langfuse trace kwargs, so TTS calls are
     # intentionally untraced. The wrapped client still routes through the same
@@ -139,13 +146,15 @@ def generate_podcast_audio(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    from news_dashboard.ai_client import get_openai_client
+    from news_dashboard.ai_client import get_openai_client, tts_timeout_seconds
 
-    client = get_openai_client(api_key=api_key, base_url=base_url)
+    client = get_openai_client(
+        api_key=api_key, base_url=base_url, timeout_seconds=tts_timeout_seconds()
+    )
 
     combined_bytes = bytearray()
     for idx, entry in enumerate(script):
-        voice = entry.get("voice", "alloy")
+        voice = entry.get("voice", _ALEX_VOICE)
         text = entry.get("text", "")
         if not text.strip():
             continue
@@ -161,7 +170,7 @@ def generate_podcast_audio(
         chunk_path = path.parent / f"podcast-{briefing_id}-chunk-{idx}.mp3"
         try:
             with client.audio.speech.with_streaming_response.create(
-                model=_MODEL, voice=voice, input=text
+                model=_PODCAST_MODEL, voice=voice, input=text
             ) as response:
                 response.stream_to_file(chunk_path)
 
@@ -184,7 +193,7 @@ _PODCAST_SYSTEM_PROMPT = (
     "Produce a JSON object with a single key 'script' containing a list of dialogue turns. "
     "Each turn MUST be an object with these exact keys:\n"
     "  speaker — either 'Alex' or 'Taylor'\n"
-    "  voice   — 'alloy' for Alex, 'shimmer' for Taylor\n"
+    "  voice   — 'onyx' for Alex, 'nova' for Taylor\n"
     "  text    — the spoken text for this turn\n"
     "Ensure they talk about all the main topics in the sections. "
     "Return valid JSON only, no markdown wrapper."
@@ -247,12 +256,12 @@ def generate_podcast_script(briefing_content: dict[str, Any]) -> list[dict[str, 
         txt = str(item.get("text") or "")
 
         if speaker.lower() == "alex":
-            voice = "alloy"
+            voice = _ALEX_VOICE
         elif speaker.lower() == "taylor":
-            voice = "shimmer"
+            voice = _TAYLOR_VOICE
         else:
             speaker = "Alex" if idx % 2 == 0 else "Taylor"
-            voice = "alloy" if idx % 2 == 0 else "shimmer"
+            voice = _ALEX_VOICE if idx % 2 == 0 else _TAYLOR_VOICE
 
         if txt.strip():
             valid_script.append(
@@ -267,7 +276,7 @@ def generate_podcast_script(briefing_content: dict[str, Any]) -> list[dict[str, 
         valid_script.append(
             {
                 "speaker": "Alex",
-                "voice": "alloy",
+                "voice": _ALEX_VOICE,
                 "text": f"Welcome to the daily podcast. Today we are discussing: {summary}",
             }
         )

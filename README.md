@@ -30,7 +30,7 @@ optional OpenAI features for embeddings, Ask AI, and briefings.
 - Node.js and npm compatible with `package-lock.json`
 - PostgreSQL 16+
 - Docker and Docker Compose for the container flow
-- OpenAI API key for AI features
+- API key for AI features (`FREE_LLM_API_KEY` or `OPENAI_API_KEY`)
 
 ## Configuration
 
@@ -43,8 +43,9 @@ Runtime storage is PostgreSQL only. Set `DATABASE_URL` or the split
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL connection parts used when `DATABASE_URL` is unset. |
 | `SESSION_SECRET` | Signed session key. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` | First local admin account. Used only when no users exist. |
-| `OPENAI_API_KEY` | Enables embeddings, Ask AI, and briefings. |
-| `OPENAI_BRIEFING_BASE_URL`, `OPENAI_BRIEFING_API_KEY` | Point briefing generation at an OpenAI-compatible endpoint (e.g. a self-hosted gateway). Optional; falls back to `OPENAI_BASE_URL` / `OPENAI_API_KEY`. Pair with `OPENAI_BRIEFING_MODEL` (use `auto` for a routing gateway). |
+| `FREE_LLM_API_KEY`, `FREE_LLM_BASE_URL` | Primary API key and base URL for chat, embeddings, Ask AI, and briefings. Use these to point at a self-hosted OpenAI-compatible gateway. Falls back to `OPENAI_API_KEY` / `OPENAI_BASE_URL` when not set. |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI credentials. Required for TTS/audio (not replaceable by the free LLM gateway). Also used as fallback for all other AI features when `FREE_LLM_API_KEY` is absent. |
+| `OPENAI_BRIEFING_MODEL` | Model name for briefing generation (e.g. `auto` for a routing gateway, or a specific model ID). Defaults to `gpt-4o-mini`. |
 | `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Traces every OpenAI call (embeddings, Ask AI, briefings, insights, TTS, body fetch) in [Langfuse](https://langfuse.com), each tagged with a descriptive name (`ask-ai`, `briefing-generation`, …). Tracing activates only when both keys are set; otherwise the app uses a plain OpenAI client with no tracing. `LANGFUSE_BASE_URL` is accepted as an alias for `LANGFUSE_HOST`. |
 | `KEYCLOAK_AUTH_ENABLED`, `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET` | Enables Keycloak. See [docs/KEYCLOAK_AUTH.md](docs/KEYCLOAK_AUTH.md). |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | VAPID public and private keys for Web Push notifications. Generate using `npx web-push generate-vapid-keys`. |
@@ -64,6 +65,18 @@ docker compose up --build
 ```
 
 Open [http://localhost:8080](http://localhost:8080).
+
+Log in with the default local-development credentials:
+
+| Field | Default value |
+| --- | --- |
+| Username | `admin` |
+| Password | `change-me` |
+
+> **These are local-development defaults only.** Before deploying anywhere
+> outside your own machine, set `SESSION_SECRET`, `BOOTSTRAP_ADMIN_USERNAME`,
+> and `BOOTSTRAP_ADMIN_PASSWORD` to strong, unique values via environment
+> variables or a `.env` file — never use these defaults in production.
 
 Run ingestion in the app container:
 
@@ -126,10 +139,31 @@ Open [http://localhost:5173](http://localhost:5173).
 make lint        # ruff, eslint, prettier checks
 make format      # auto-format backend and frontend
 make typecheck   # mypy and TypeScript
-make test        # backend and frontend tests
+make test        # backend and frontend tests (everyday development loop)
 make build       # production frontend build
 make check       # full CI suite
 ```
+
+### Test lanes
+
+| Command | What it runs | When to use |
+|---|---|---|
+| `make test-smoke` | Backend `smoke`-marked tests + frontend smoke files | Quick sanity check, ~seconds |
+| `make test-backend` | Full `pytest` suite | Before pushing backend changes |
+| `make test-frontend` | Full Vitest suite | Before pushing frontend changes |
+| `make test-e2e` | Playwright end-to-end tests | Before pushing UI/routing changes |
+| `make test-full` | Everything with coverage | Same as nightly CI; use before major releases |
+
+**Local development loop:** run `make test-smoke` during active development, `make test-backend` or `make test-frontend` depending on what you changed, then `make check` before opening a PR.
+
+**Pre-push / pre-release:** run `make test-full` for comprehensive coverage including slow and DB-heavy tests.
+
+Pytest markers:
+- `smoke` — fast tests with no external services
+- `db` — auto-applied to any test using `pg_url` / `pg_clean`; requires PostgreSQL
+- `slow` — expensive tests reserved for the nightly schedule
+
+Run a specific lane with `pytest -m smoke`, `pytest -m "not db"`, or `pytest -m db`.
 
 ## Project Layout
 

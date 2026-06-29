@@ -106,9 +106,12 @@ describe('adaptArticle', () => {
 
 describe('fetchTriageArticles', () => {
   it('queries starred=true for the starred view', async () => {
-    const { calls } = stubFetch(() => jsonOk({ items: [legacy()] }));
-    const items = await fetchTriageArticles('starred');
-    expect(items).toHaveLength(1);
+    const { calls } = stubFetch(() =>
+      jsonOk({ items: [legacy()], limit: 100, offset: 0, has_more: false })
+    );
+    const page = await fetchTriageArticles('starred');
+    expect(page.items).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
     expect(calls[0].url).toContain('starred=true');
   });
 
@@ -117,6 +120,18 @@ describe('fetchTriageArticles', () => {
     await fetchTriageArticles('today', 'ai-llm');
     expect(calls[0].url).toContain('state=today');
     expect(calls[0].url).toContain('category=ai-llm');
+  });
+
+  it('forwards pagination params and normalizes page metadata', async () => {
+    const { calls } = stubFetch(() =>
+      jsonOk({ items: [legacy()], limit: 50, offset: 100, has_more: true })
+    );
+    const page = await fetchTriageArticles('today', undefined, { limit: 50, offset: 100 });
+    expect(calls[0].url).toContain('limit=50');
+    expect(calls[0].url).toContain('offset=100');
+    expect(page.limit).toBe(50);
+    expect(page.offset).toBe(100);
+    expect(page.hasMore).toBe(true);
   });
 });
 
@@ -160,10 +175,13 @@ describe('snapshot', () => {
 
 describe('searchArticlesFiltered', () => {
   it('builds query params from all filters', async () => {
-    const { calls } = stubFetch(() => jsonOk({ items: [legacy()] }));
-    const items = await searchArticlesFiltered({
+    const { calls } = stubFetch(() =>
+      jsonOk({ items: [legacy()], total: 3, limit: 25, offset: 0, has_more: true })
+    );
+    const page = await searchArticlesFiltered({
       q: 'term',
       limit: 25,
+      offset: 50,
       starredOnly: true,
       includeArchived: true,
       dateRange: 'week',
@@ -171,10 +189,14 @@ describe('searchArticlesFiltered', () => {
       categories: ['ai-llm'],
       sources: ['src'],
     });
-    expect(items).toHaveLength(1);
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(3);
+    expect(page.limit).toBe(25);
+    expect(page.hasMore).toBe(true);
     const url = calls[0].url;
     expect(url).toContain('q=term');
     expect(url).toContain('limit=25');
+    expect(url).toContain('offset=50');
     expect(url).toContain('starred_only=true');
     expect(url).toContain('include_archived=true');
     expect(url).toContain('date_range=week');

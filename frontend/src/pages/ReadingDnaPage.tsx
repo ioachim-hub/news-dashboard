@@ -6,6 +6,8 @@ import {
   deleteGoal,
   fetchGoals,
   fetchLatestQuiz,
+  fetchQuizCandidates,
+  fetchQuizHistory,
   fetchReadingDna,
   fetchRecommendationPreferences,
   generateQuiz,
@@ -14,6 +16,8 @@ import {
 } from '../api';
 import type {
   Quiz,
+  QuizCandidate,
+  QuizHistoryItem,
   QuizQuestion,
   QuizResult,
   ReadingDna,
@@ -218,6 +222,7 @@ export function ReadingDnaPage() {
 function LearningCenter() {
   const [goals, setGoals] = useState<ReadingGoal[]>([]);
   const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [quizHistory, setQuizHistory] = useState<QuizHistoryItem[]>([]);
   const [result, setResult] = useState<QuizResult | null>(null);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [loadingGoals, setLoadingGoals] = useState(true);
@@ -225,20 +230,50 @@ function LearningCenter() {
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
+  const [quizError, setQuizError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
   const [newDescription, setNewDescription] = useState('');
   const [newKeywords, setNewKeywords] = useState('');
   const [addingGoal, setAddingGoal] = useState(false);
   const [showGoalForm, setShowGoalForm] = useState(false);
+  const [candidates, setCandidates] = useState<QuizCandidate[] | null>(null);
+
+  const refreshQuizHistory = async () => {
+    try {
+      setQuizHistory(await fetchQuizHistory());
+      setHistoryError(null);
+    } catch {
+      setHistoryError('Failed to load quiz history.');
+    }
+  };
 
   useEffect(() => {
     fetchGoals()
-      .then(setGoals)
-      .catch(() => setGoals([]))
+      .then((g) => {
+        setGoals(g);
+        setGoalsError(null);
+      })
+      .catch(() => setGoalsError('Failed to load goals.'))
       .finally(() => setLoadingGoals(false));
     fetchLatestQuiz()
-      .then(setQuiz)
-      .catch(() => setQuiz(null))
+      .then((q) => {
+        setQuiz(q);
+        setQuizError(null);
+        if (q?.completed_result) {
+          setResult(q.completed_result);
+        }
+      })
+      .catch(() => setQuizError('Failed to load quiz.'))
       .finally(() => setLoadingQuiz(false));
+    fetchQuizCandidates()
+      .then((c) => {
+        setCandidates(c);
+        setCandidatesError(null);
+      })
+      .catch(() => setCandidatesError('Failed to load quiz material.'));
+    void refreshQuizHistory();
   }, []);
 
   async function handleAddGoal() {
@@ -275,6 +310,7 @@ function LearningCenter() {
     try {
       const newQuiz = await generateQuiz();
       setQuiz(newQuiz);
+      await refreshQuizHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate quiz');
     } finally {
@@ -290,6 +326,7 @@ function LearningCenter() {
     try {
       const quizResult = await submitQuiz(quiz.id, answerList);
       setResult(quizResult);
+      await refreshQuizHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit quiz');
     } finally {
@@ -312,6 +349,8 @@ function LearningCenter() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3 animate-spin" /> Loading goals…
             </div>
+          ) : goalsError ? (
+            <p className="text-sm text-destructive">{goalsError}</p>
           ) : goals.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No goals yet. Add one to boost relevant articles.
@@ -394,8 +433,14 @@ function LearningCenter() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-3 animate-spin" /> Loading quiz…
           </div>
+        ) : quizError ? (
+          <p className="text-sm text-destructive">{quizError}</p>
         ) : result ? (
-          <QuizResultView result={result} />
+          <QuizResultView
+            result={result}
+            generatingQuiz={generatingQuiz}
+            onGenerateQuiz={() => void handleGenerateQuiz()}
+          />
         ) : quiz ? (
           <QuizView
             quiz={quiz}
@@ -404,8 +449,47 @@ function LearningCenter() {
             onSubmit={() => void handleSubmitQuiz()}
             submitting={submitting}
           />
+        ) : candidates !== null && candidates.length === 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              No quiz material yet. Mark articles as done while reading to build up quiz content.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Quizzes draw from articles you finished in the last 7 days.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
+            {candidatesError ? (
+              <p className="text-xs text-destructive">{candidatesError}</p>
+            ) : (
+              candidates &&
+              candidates.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Quiz will draw from
+                  </p>
+                  <ul className="space-y-1">
+                    {candidates.slice(0, 5).map((c) => (
+                      <li key={c.id} className="flex items-start gap-2 text-xs">
+                        <span className="mt-0.5 shrink-0 text-muted-foreground">·</span>
+                        <span className="min-w-0">
+                          <span className="font-medium">{c.title}</span>
+                          {(c.source_name ?? c.category) && (
+                            <span className="ml-1 text-muted-foreground">
+                              {[c.source_name ?? null, c.category ?? null]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          )}
+                          {c.goal_matched && <span className="ml-1 text-primary">✓ goal</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            )}
             <p className="text-sm text-muted-foreground">
               No quiz yet. Generate one based on your recent reading.
             </p>
@@ -436,6 +520,68 @@ function LearningCenter() {
           </div>
         )}
       </Panel>
+
+      {historyError ? (
+        <p className="text-sm text-destructive">{historyError}</p>
+      ) : (
+        quizHistory.length > 0 && <QuizHistoryPanel items={quizHistory} />
+      )}
+    </div>
+  );
+}
+
+function QuizHistoryPanel({ items }: { items: QuizHistoryItem[] }) {
+  const completed = items.filter((item) => item.completed && item.score !== null);
+  const average =
+    completed.length > 0
+      ? Math.round(
+          (completed.reduce((sum, item) => sum + (item.score ?? 0) / item.total, 0) /
+            completed.length) *
+            100
+        )
+      : null;
+  const streak = items.findIndex((item) => !item.completed);
+  const currentStreak = streak === -1 ? items.length : streak;
+
+  return (
+    <Panel title="Quiz Progress">
+      <div className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <ProgressStat label="Attempts" value={String(items.length)} />
+          <ProgressStat label="Average" value={average === null ? '—' : `${average}%`} />
+          <ProgressStat label="Streak" value={String(currentStreak)} />
+        </div>
+        <ul className="divide-y divide-border rounded border border-border">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {new Date(item.created_at).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {item.completed ? 'Completed' : 'Not completed'}
+                </div>
+              </div>
+              <div className="shrink-0 text-sm font-semibold tabular-nums">
+                {item.score === null ? `—/${item.total}` : `${item.score}/${item.total}`}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Panel>
+  );
+}
+
+function ProgressStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-border px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
     </div>
   );
 }
@@ -453,12 +599,16 @@ function QuizView({
   onSubmit: () => void;
   submitting: boolean;
 }) {
-  const allAnswered = quiz.questions.every((_, i) => answers[i] !== undefined);
+  const answeredCount = quiz.questions.filter((_, i) => answers[i] !== undefined).length;
+  const remainingCount = quiz.questions.length - answeredCount;
+  const allAnswered = remainingCount === 0;
+  const submitLabel = allAnswered ? 'Submit final answers' : 'Answer all questions to submit';
 
   return (
     <div className="space-y-5">
+      <QuizProgress answeredCount={answeredCount} totalCount={quiz.questions.length} />
       {quiz.questions.map((q, qi) => (
-        <QuestionCard
+        <QuizQuestionCard
           key={qi}
           question={q}
           questionIndex={qi}
@@ -466,19 +616,51 @@ function QuizView({
           onSelect={(ai) => onAnswer(qi, ai)}
         />
       ))}
-      <button
-        className="flex items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-        disabled={!allAnswered || submitting}
-        onClick={onSubmit}
-      >
-        {submitting && <Loader2 className="size-3.5 animate-spin" />}
-        {submitting ? 'Submitting…' : 'Submit answers'}
-      </button>
+      <div className="space-y-2 rounded-md border border-border bg-background p-3">
+        <p className="text-sm text-muted-foreground" id="quiz-submit-status">
+          {allAnswered
+            ? `Ready to submit ${quiz.questions.length} final answers.`
+            : `Answer ${remainingCount} more ${remainingCount === 1 ? 'question' : 'questions'} to submit.`}
+        </p>
+        <button
+          className="flex max-w-full items-center gap-1.5 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          disabled={!allAnswered || submitting}
+          aria-describedby="quiz-submit-status"
+          onClick={onSubmit}
+        >
+          {submitting && <Loader2 className="size-3.5 animate-spin" />}
+          {submitting ? 'Submitting...' : submitLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-function QuestionCard({
+function QuizProgress({
+  answeredCount,
+  totalCount,
+}: {
+  answeredCount: number;
+  totalCount: number;
+}) {
+  const percent = totalCount === 0 ? 0 : Math.round((answeredCount / totalCount) * 100);
+
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-background p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="font-medium">Quiz progress</span>
+        <span className="tabular-nums text-muted-foreground">
+          {answeredCount} of {totalCount} answered
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded bg-muted" aria-hidden="true">
+        <div className="h-full bg-primary" style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function QuizQuestionCard({
   question,
   questionIndex,
   selectedAnswer,
@@ -489,49 +671,80 @@ function QuestionCard({
   selectedAnswer: number | undefined;
   onSelect: (answerIndex: number) => void;
 }) {
+  const questionLabel = `Question ${questionIndex + 1}: ${question.question}`;
+
   return (
-    <div className="rounded border border-border p-3 space-y-2">
-      <p className="text-sm font-medium">
-        {questionIndex + 1}. {question.question}
-      </p>
+    <fieldset
+      className="space-y-3 rounded border border-border p-3"
+      aria-label={questionLabel}
+      role="radiogroup"
+    >
+      <legend className="text-sm font-medium">{questionLabel}</legend>
       <div className="space-y-1.5">
         {question.options.map((opt, ai) => (
           <label
             key={ai}
-            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+            htmlFor={`quiz-question-${questionIndex}-answer-${ai}`}
+            className="flex min-w-0 cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted focus-within:ring-1 focus-within:ring-primary"
           >
             <input
+              id={`quiz-question-${questionIndex}-answer-${ai}`}
               type="radio"
               name={`q-${questionIndex}`}
               checked={selectedAnswer === ai}
               onChange={() => onSelect(ai)}
-              className="accent-primary"
+              className="mt-0.5 shrink-0 accent-primary"
             />
-            {opt}
+            <span className="min-w-0 break-words">{opt}</span>
           </label>
         ))}
       </div>
-    </div>
+    </fieldset>
   );
 }
 
-function QuizResultView({ result }: { result: QuizResult }) {
+function QuizResultView({
+  result,
+  generatingQuiz,
+  onGenerateQuiz,
+}: {
+  result: QuizResult;
+  generatingQuiz: boolean;
+  onGenerateQuiz: () => void;
+}) {
   const pct = Math.round((result.score / result.total) * 100);
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="text-3xl font-bold tabular-nums">
-          {result.score}/{result.total}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background p-3">
+        <div className="flex items-center gap-3">
+          <div className="text-3xl font-bold tabular-nums">
+            {result.score}/{result.total}
+          </div>
+          <div className="text-sm text-muted-foreground">{pct}% correct</div>
         </div>
-        <div className="text-sm text-muted-foreground">{pct}% correct</div>
+        <button
+          className="flex max-w-full items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          disabled={generatingQuiz}
+          onClick={onGenerateQuiz}
+        >
+          {generatingQuiz ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3" />
+          )}
+          {generatingQuiz ? 'Generating...' : 'Generate a new quiz'}
+        </button>
       </div>
       <div className="space-y-3">
         {result.questions.map((q, qi) => {
           const isCorrect = q.your_answer === q.correct_index;
+          const yourAnswer =
+            q.your_answer === null || q.your_answer === undefined ? null : q.options[q.your_answer];
+          const correctAnswer = q.options[q.correct_index];
           return (
             <div
               key={qi}
-              className={`rounded border p-3 space-y-1.5 ${isCorrect ? 'border-green-500/40 bg-green-500/5' : 'border-destructive/40 bg-destructive/5'}`}
+              className={`space-y-3 rounded border p-3 ${isCorrect ? 'border-green-500/40 bg-green-500/5' : 'border-destructive/40 bg-destructive/5'}`}
             >
               <div className="flex items-start gap-2">
                 {isCorrect ? (
@@ -539,24 +752,52 @@ function QuizResultView({ result }: { result: QuizResult }) {
                 ) : (
                   <XCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                 )}
-                <p className="text-sm font-medium">{q.question}</p>
+                <p className="min-w-0 break-words text-sm font-medium">{q.question}</p>
               </div>
-              <div className="space-y-1 pl-5">
-                {q.options.map((opt, ai) => (
-                  <div
-                    key={ai}
-                    className={`text-xs ${ai === q.correct_index ? 'font-semibold text-green-600' : ai === q.your_answer && !isCorrect ? 'text-destructive line-through' : 'text-muted-foreground'}`}
-                  >
-                    {opt}
-                  </div>
-                ))}
+              <div className="grid gap-2 pl-5 sm:grid-cols-2">
+                <AnswerReview
+                  label="Your answer"
+                  value={yourAnswer ?? 'No answer selected'}
+                  tone={isCorrect ? 'correct' : 'wrong'}
+                />
+                <AnswerReview label="Correct answer" value={correctAnswer} tone="correct" />
               </div>
               {q.explanation && (
-                <p className="pl-5 text-xs text-muted-foreground">{q.explanation}</p>
+                <details className="pl-5 text-xs text-muted-foreground" open>
+                  <summary className="cursor-pointer font-medium text-foreground">
+                    Explanation
+                  </summary>
+                  <p className="mt-1 break-words">{q.explanation}</p>
+                </details>
               )}
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function AnswerReview({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'correct' | 'wrong';
+}) {
+  return (
+    <div className="min-w-0 rounded border border-border bg-surface px-2 py-1.5">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={`mt-0.5 break-words text-xs ${
+          tone === 'correct' ? 'text-green-600' : 'text-destructive'
+        }`}
+      >
+        {value}
       </div>
     </div>
   );

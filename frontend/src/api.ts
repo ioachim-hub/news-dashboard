@@ -12,13 +12,22 @@ import type {
   IngestedVsHandledPoint,
   NotificationSettings,
   NotificationSettingsUpdate,
+  OnboardingInterest,
+  OnboardingSourceRecommendation,
+  OnboardingStatus,
+  PersonalizationNudge,
   PushSubscribeRequest,
   Quiz,
+  QuizCandidate,
+  QuizHistoryItem,
   QuizResult,
   ReadingDna,
   ReadingGoal,
   RecommendationPreferences,
   ReceivedShare,
+  ShareDetail,
+  ShareMessage,
+  SaveOnboardingProfileRequest,
   ShareableUser,
   Source,
   SourceCleanupSuggestion,
@@ -54,6 +63,16 @@ async function readErrorMessage(response: Response): Promise<string> {
   return `${response.status} ${response.statusText}`;
 }
 
+export class HttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -61,7 +80,7 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
     ...init,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw new HttpError(response.status, await readErrorMessage(response));
   }
   return response.json() as Promise<T>;
 }
@@ -150,6 +169,24 @@ export async function applySourceCleanup(sourceSlugs: string[]): Promise<{
   });
 }
 
+export interface CreateSourcePayload {
+  url: string;
+  name: string;
+  category?: string;
+  slug?: string;
+}
+
+export async function createSource(payload: CreateSourcePayload): Promise<Source> {
+  return requestJson<Source>('/api/sources', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSource(slug: string): Promise<{ status: string }> {
+  return requestJson<{ status: string }>(`/api/sources/${slug}`, { method: 'DELETE' });
+}
+
 export async function fetchSummary(): Promise<Summary> {
   return requestJson<Summary>('/api/summary');
 }
@@ -171,7 +208,13 @@ export async function saveRecommendationPreferences(
   });
 }
 
-export async function ingestNow(): Promise<{ inserted: number; results: Record<string, number> }> {
+export async function ingestNow(): Promise<{
+  inserted: number;
+  results: Record<string, number>;
+  run_id: number;
+  total_errors: number;
+  failed_sources: string[];
+}> {
   return requestJson('/api/ingest', { method: 'POST' });
 }
 
@@ -234,6 +277,21 @@ export async function pauseScheduler(): Promise<{ paused: boolean }> {
 
 export async function resumeScheduler(): Promise<{ paused: boolean; next_run_at: string | null }> {
   return requestJson('/api/scheduler/resume', { method: 'POST' });
+}
+
+export interface ScheduledJobRun {
+  id: number;
+  job_name: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  status: 'success' | 'skipped' | 'failure';
+  message: string | null;
+}
+
+export async function fetchLatestJobRuns(): Promise<ScheduledJobRun[]> {
+  const data = await requestJson<{ items: ScheduledJobRun[] }>('/api/scheduler/job-runs');
+  return data.items;
 }
 
 function statsParams(from: string, to: string): string {
@@ -522,12 +580,23 @@ export async function deleteGoal(goalId: number): Promise<void> {
   await requestJson(`/api/goals/${goalId}`, { method: 'DELETE' });
 }
 
+export async function fetchQuizCandidates(): Promise<QuizCandidate[]> {
+  const data = await requestJson<{ candidates: QuizCandidate[] }>('/api/quizzes/candidates');
+  return data.candidates;
+}
+
 export async function fetchLatestQuiz(): Promise<Quiz | null> {
   try {
     return await requestJson<Quiz>('/api/quizzes/latest');
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) return null;
+    throw err;
   }
+}
+
+export async function fetchQuizHistory(): Promise<QuizHistoryItem[]> {
+  const data = await requestJson<{ items: QuizHistoryItem[] }>('/api/quizzes');
+  return data.items;
 }
 
 export async function generateQuiz(): Promise<Quiz> {
@@ -545,6 +614,80 @@ export async function markShareRead(shareId: number): Promise<void> {
   await requestJson(`/api/shares/${shareId}/read`, { method: 'POST' });
 }
 
+export async function fetchShareDetail(shareId: number): Promise<ShareDetail> {
+  return requestJson<ShareDetail>(`/api/shares/${shareId}`);
+}
+
+export async function fetchShareMessages(shareId: number): Promise<{ items: ShareMessage[] }> {
+  return requestJson<{ items: ShareMessage[] }>(`/api/shares/${shareId}/messages`);
+}
+
+export async function postShareMessage(shareId: number, message: string): Promise<ShareMessage> {
+  return requestJson<ShareMessage>(`/api/shares/${shareId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
 export async function fetchTopicMap(): Promise<TopicMapResponse> {
   return requestJson<TopicMapResponse>('/api/articles/topic-map');
+}
+
+export async function fetchOnboardingStatus(): Promise<OnboardingStatus> {
+  return requestJson<OnboardingStatus>('/api/onboarding/status');
+}
+
+export async function fetchOnboardingInterests(): Promise<OnboardingInterest[]> {
+  return requestJson<OnboardingInterest[]>('/api/onboarding/interests');
+}
+
+export async function fetchOnboardingSourceRecommendations(
+  interestIds: string[]
+): Promise<OnboardingSourceRecommendation[]> {
+  return requestJson<OnboardingSourceRecommendation[]>('/api/onboarding/recommendations', {
+    method: 'POST',
+    body: JSON.stringify({ interest_ids: interestIds }),
+  });
+}
+
+export async function saveOnboardingInterests(
+  payload: SaveOnboardingProfileRequest
+): Promise<void> {
+  await requestJson('/api/onboarding/profile', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchPersonalizationNudges(): Promise<PersonalizationNudge[]> {
+  const data = await requestJson<{ items: PersonalizationNudge[] }>('/api/personalization/nudges');
+  return data.items;
+}
+
+export async function applyPersonalizationNudge(nudgeId: string): Promise<{ applied: boolean }> {
+  return requestJson('/api/personalization/nudges/apply', {
+    method: 'POST',
+    body: JSON.stringify({ nudge_id: nudgeId }),
+  });
+}
+
+export async function dismissPersonalizationNudge(
+  nudgeId: string,
+  cooldownDays = 7
+): Promise<{ dismissed: boolean }> {
+  return requestJson('/api/personalization/nudges/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ nudge_id: nudgeId, cooldown_days: cooldownDays }),
+  });
+}
+
+export async function downloadUserExport(): Promise<void> {
+  const data = await requestJson<unknown>('/api/users/me/export');
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `reading-archive-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

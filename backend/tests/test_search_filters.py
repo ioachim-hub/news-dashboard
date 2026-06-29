@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from news_dashboard.db import connect, init_db
-from news_dashboard.ingest import list_articles, search_articles, sync_sources
+from news_dashboard.ingest import list_articles, search_articles, search_articles_page, sync_sources
 from news_dashboard.main import app
 
 
@@ -349,6 +349,63 @@ def test_search_endpoint_returns_matching_articles(client: TestClient, api_db: P
     titles = [it["title"] for it in items]
     assert "Pytest Tips" in titles
     assert "Rust Intro" not in titles
+
+
+def test_search_page_reports_total_and_second_page(db: Path) -> None:
+    for index in range(5):
+        _insert_with_score(
+            db,
+            title=f"Page Article {index}",
+            importance_score=50,
+            url_suffix=f"-page-{index}",
+        )
+
+    first_page = search_articles_page("", limit=2, offset=0, db_path=db)
+    second_page = search_articles_page("", limit=2, offset=2, db_path=db)
+
+    assert first_page["total"] == 5
+    assert first_page["has_more"] is True
+    assert first_page["limit"] == 2
+    assert first_page["offset"] == 0
+    assert len(first_page["items"]) == 2
+    assert second_page["total"] == 5
+    assert second_page["has_more"] is True
+    assert [item["id"] for item in second_page["items"]] != [
+        item["id"] for item in first_page["items"]
+    ]
+
+
+def test_search_empty_query_uses_id_tiebreaker_for_stable_pages(db: Path) -> None:
+    older_id = _insert_with_score(
+        db,
+        title="Older Tie",
+        importance_score=50,
+        url_suffix="-older-tie",
+    )
+    newer_id = _insert_with_score(
+        db,
+        title="Newer Tie",
+        importance_score=50,
+        url_suffix="-newer-tie",
+    )
+
+    results = search_articles("", limit=2, db_path=db)
+
+    assert [item["id"] for item in results[:2]] == [newer_id, older_id]
+
+
+def test_search_endpoint_returns_page_contract(client: TestClient, api_db: Path) -> None:
+    for index in range(3):
+        _insert(api_db, title=f"Endpoint Page {index}", url_suffix=f"-endpoint-{index}")
+
+    resp = client.get("/api/search?limit=2&offset=1")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data) >= {"items", "total", "limit", "offset", "has_more"}
+    assert data["total"] == 3
+    assert data["limit"] == 2
+    assert data["offset"] == 1
 
 
 # ─── Text relevance ordering ──────────────────────────────────────────────────

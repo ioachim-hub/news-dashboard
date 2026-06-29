@@ -23,7 +23,52 @@
   },
   "appVersionName": "1.21.0",
   "appVersionCode": 1021000,
-  "shortcuts": [],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "url": "/today",
+      "icons": [
+        {
+          "src": "https://news.lihor.ro/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Brief",
+      "short_name": "Brief",
+      "url": "/",
+      "icons": [
+        {
+          "src": "https://news.lihor.ro/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "short_name": "Search",
+      "url": "/search",
+      "icons": [
+        {
+          "src": "https://news.lihor.ro/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Shared",
+      "short_name": "Shared",
+      "url": "/shared",
+      "icons": [
+        {
+          "src": "https://news.lihor.ro/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://news.lihor.ro/manifest.webmanifest",
   "fallbackType": "customtabs",

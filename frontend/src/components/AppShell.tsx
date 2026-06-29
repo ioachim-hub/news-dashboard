@@ -3,10 +3,14 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LogOut, MoreHorizontal, Search } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { AppLogo } from './AppLogo';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutOverlay } from './ShortcutOverlay';
 import { WhatsNewDialog } from './WhatsNewDialog';
+import { OnboardingWizard } from './OnboardingWizard';
 import { useWhatsNew } from '@/hooks/useWhatsNew';
+import { useOnboardingWizard } from '@/hooks/useOnboardingWizard';
+import { useElectronBriefNotifier } from '@/hooks/useElectronBriefNotifier';
 import { cn } from '@/lib/utils';
 import { fetchSummary, fetchSharesUnreadCount, logoutUser } from '@/api';
 import { startAnalytics, stopAnalytics, trackRoute } from '@/lib/analytics';
@@ -15,6 +19,7 @@ import {
   getPageTitle,
   getShortcutTarget,
   isNavigationItemActive,
+  mobilePrimaryOverflowItems,
   mobileNavigationItems,
   primaryNavigationItems,
   secondaryNavigationItemsFor,
@@ -134,6 +139,8 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const whatsNew = useWhatsNew();
+  const onboarding = useOnboardingWizard();
+  useElectronBriefNotifier(navigate);
 
   async function handleLogout() {
     await logoutUser();
@@ -206,9 +213,7 @@ export function AppShell() {
       <header className="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur">
         <div className="mx-auto max-w-6xl flex h-12 items-center justify-between px-4">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="size-6 rounded-md bg-foreground/90 grid place-items-center text-background text-[10px] font-bold tracking-tight">
-              RD
-            </div>
+            <AppLogo className="size-6 rounded-md" />
             <h1 className="text-[13px] font-semibold tracking-tight truncate">{title}</h1>
           </div>
           <div className="flex items-center gap-1">
@@ -237,6 +242,29 @@ export function AppShell() {
                   )}
                 </SheetHeader>
                 <nav className="p-2">
+                  {mobilePrimaryOverflowItems.map((m) => {
+                    const Icon = m.icon;
+                    const active = isNavigationItemActive(m.to, pathname);
+                    return (
+                      <Link
+                        key={m.to}
+                        to={m.to}
+                        onClick={() => setMoreOpen(false)}
+                        className={cn(
+                          'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm',
+                          active
+                            ? 'bg-surface-2 text-foreground'
+                            : 'text-muted-foreground hover:bg-surface hover:text-foreground'
+                        )}
+                      >
+                        <Icon className="size-4" />
+                        {m.label}
+                      </Link>
+                    );
+                  })}
+                  {mobilePrimaryOverflowItems.length > 0 && (
+                    <div className="mx-1 my-1 h-px bg-border" />
+                  )}
                   {secondaryNavigationItemsFor(Boolean(user?.is_admin)).map((m) => {
                     const Icon = m.icon;
                     const active = isNavigationItemActive(m.to, pathname);
@@ -314,6 +342,7 @@ export function AppShell() {
       />
       <ShortcutOverlay open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <WhatsNewDialog state={whatsNew} />
+      <OnboardingWizard open={onboarding.open} onClose={onboarding.skip} />
     </div>
   );
 }

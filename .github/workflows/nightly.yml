@@ -67,10 +67,48 @@ jobs:
         with:
           node-version: '26'
           cache: npm
-      - run: npm install
+      - run: npm ci
 
       - name: Run full frontend suite with coverage
         run: npm run test:frontend:coverage --silent
 
       - name: Build (includes tsc)
         run: npm run build
+
+  # ── Playwright e2e suite ──────────────────────────────────────────────────
+  # Nightly/manual only for now; e2e is intentionally not required on every PR.
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright e2e suite
+        run: npm run test:e2e --silent
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore

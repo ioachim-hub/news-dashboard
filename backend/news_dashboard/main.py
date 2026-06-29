@@ -1309,7 +1309,8 @@ def delete_source(
         if src.get("deleted_at") is not None:
             raise HTTPException(status_code=404, detail="source not found")
         conn.execute(
-            "UPDATE sources SET deleted_at = NOW(), enabled = FALSE WHERE slug = %s AND owner_user_id = %s",
+            "UPDATE sources SET deleted_at = NOW(), enabled = FALSE "
+            "WHERE slug = %s AND owner_user_id = %s",
             (slug, uid),
         )
     return {"status": "deleted"}

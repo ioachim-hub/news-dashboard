@@ -18,7 +18,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       securityContext:
-        fsGroup: 1000
+{{ toYaml .Values.app.podSecurityContext | indent 8 }}
       {{- if .Values.image.pullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.image.pullSecretName | quote }}
@@ -28,9 +28,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
+{{ toYaml .Values.app.containerSecurityContext | indent 12 }}
           env:
             - name: INGEST_INTERVAL_SCHEDULER_ENABLED
               value: {{ ternary "false" "true" .Values.ingestCronJob.enabled | quote }}
@@ -152,3 +150,9 @@ spec:
             periodSeconds: 20
           resources:
 {{ toYaml .Values.resources | indent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

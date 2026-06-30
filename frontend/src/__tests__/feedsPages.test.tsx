@@ -397,6 +397,7 @@ describe('FeedsLogsPage', () => {
   type Handler = (e: unknown) => void;
 
   const holder: { current: FakeEventSource } = { current: null as never };
+  const instances: FakeEventSource[] = [];
 
   class FakeEventSource {
     handlers: Record<string, Handler> = {};
@@ -408,10 +409,12 @@ describe('FeedsLogsPage', () => {
     };
     constructor() {
       holder.current = this;
+      instances.push(this);
     }
   }
 
   beforeEach(() => {
+    instances.length = 0;
     vi.stubGlobal('EventSource', FakeEventSource);
   });
 
@@ -431,6 +434,33 @@ describe('FeedsLogsPage', () => {
     await waitFor(() => expect(screen.getByText('Waiting for ingest output…')).toBeTruthy());
 
     holder.current.onerror?.(null);
-    await waitFor(() => expect(screen.getByText('Connecting…')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Disconnected')).toBeTruthy());
+  });
+
+  it('shows an actionable stream failure and retries with a fresh connection', async () => {
+    render(<FeedsLogsPage />);
+
+    const firstStream = holder.current;
+    holder.current.onerror?.(null);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Live ingest stream is unavailable or requires admin access/i)
+      ).toBeTruthy()
+    );
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(firstStream.close).toHaveBeenCalledTimes(1);
+    expect(instances).toHaveLength(2);
+    expect(holder.current).not.toBe(firstStream);
+    expect(screen.getByText('Connecting…')).toBeTruthy();
+
+    holder.current.onopen?.(null);
+    await waitFor(() => expect(screen.getByText('Live')).toBeTruthy());
+
+    holder.current.handlers.line?.({ data: 'retry worked' });
+    await waitFor(() => expect(screen.getByText(/retry worked/)).toBeTruthy());
   });
 });

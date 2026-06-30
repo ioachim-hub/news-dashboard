@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from hashlib import sha256
@@ -533,6 +534,48 @@ def describe_database(database_url: str | None = None) -> str:
     return url
 
 
+def _open_connection(database_url: str | None) -> Any:
+    """Open a psycopg connection, retrying transient connection failures.
+
+    PostgreSQL may not yet be accepting TCP connections when the app starts
+    (a common race in containerized/Kubernetes deployments where the app pod
+    comes up before the database). Retry ``OperationalError`` — the
+    connection-level failure class — with a fixed backoff before giving up, so
+    startup waits the database out instead of crashing. Non-connection errors
+    are not retried. Tunable via ``DB_CONNECT_MAX_ATTEMPTS`` and
+    ``DB_CONNECT_RETRY_DELAY_SECONDS``.
+    """
+    dsn = active_database_url(database_url)
+    try:
+        max_attempts = max(1, int(os.getenv("DB_CONNECT_MAX_ATTEMPTS", "30")))
+    except ValueError:
+        max_attempts = 30
+    try:
+        delay = max(0.0, float(os.getenv("DB_CONNECT_RETRY_DELAY_SECONDS", "2.0")))
+    except ValueError:
+        delay = 2.0
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # ty mis-resolves psycopg's overloaded connect() and infers the
+            # default tuple row_factory; mypy and pyrefly both accept dict_row.
+            return psycopg.connect(dsn, row_factory=dict_row)  # ty: ignore[invalid-argument-type]
+        except psycopg.OperationalError as exc:
+            if attempt >= max_attempts:
+                raise
+            logger.warning(
+                "PostgreSQL connection attempt %d/%d failed (%s); retrying in %.1fs",
+                attempt,
+                max_attempts,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    # Unreachable: range starts at 1 and max_attempts >= 1, so the loop body
+    # always runs and either returns or raises.
+    message = "PostgreSQL connection retry loop exited without connecting"
+    raise RuntimeError(message)  # pragma: no cover
+
+
 @contextmanager
 def connect(
     db_path: Path | str | None = None,
@@ -542,9 +585,7 @@ def connect(
     if isinstance(db_path, str) and db_path.startswith(POSTGRES_PREFIXES):
         database_url = db_path
         db_path = None
-    # ty mis-resolves psycopg's overloaded connect() and infers the default
-    # tuple row_factory; mypy and pyrefly both accept dict_row here.
-    conn = psycopg.connect(active_database_url(database_url), row_factory=dict_row)  # ty: ignore[invalid-argument-type]
+    conn = _open_connection(database_url)
     try:
         if isinstance(db_path, Path):
             schema = _schema_name(db_path)

@@ -145,8 +145,10 @@ postgresql:
       drop: ["ALL"]
   database: news_dashboard
   username: news_dashboard
-  # Internal cluster password. Override in real environments.
-  password: news-dashboard-local-password
+  # Internal cluster password. Required when postgresql.enabled=true.
+  # Helm will fail to render if this is empty and postgresql.enabled=true.
+  # For local development, you can set it to a known value during install.
+  password: ""
   port: 5432
   # Resource requests/limits for the bundled PostgreSQL StatefulSet container.
   # On a single-node deployment these prevent Postgres memory spikes from crowding the app pod.

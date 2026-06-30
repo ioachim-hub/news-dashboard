@@ -18,6 +18,8 @@ def _render_chart(*set_values: str) -> str:
         str(CHART_DIR),
         "--set",
         "app.auth.sessionSecret=dummy-session-secret",
+        "--set-string",
+        "postgresql.password=dummy-postgres-password-for-render-only",
     ]
     for value in set_values:
         args.extend(("--set", value))
@@ -178,3 +180,45 @@ def test_helm_template_fails_without_postgres_config() -> None:
     assert (
         "External PostgreSQL configuration is required when postgresql.enabled=false" in res.stderr
     )
+
+
+@pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")
+def test_helm_template_fails_without_bundled_postgres_password() -> None:
+    assert HELM_BIN is not None
+    res = subprocess.run(  # noqa: S603
+        [
+            HELM_BIN,
+            "template",
+            "news-dashboard",
+            str(CHART_DIR),
+            "--set",
+            "app.auth.sessionSecret=dummy-session-secret",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "postgresql.password is required when postgresql.enabled=true" in res.stderr
+
+
+@pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")
+def test_helm_template_fails_with_empty_bundled_postgres_password() -> None:
+    assert HELM_BIN is not None
+    res = subprocess.run(  # noqa: S603
+        [
+            HELM_BIN,
+            "template",
+            "news-dashboard",
+            str(CHART_DIR),
+            "--set",
+            "app.auth.sessionSecret=dummy-session-secret",
+            "--set",
+            "postgresql.password=",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert "postgresql.password is required when postgresql.enabled=true" in res.stderr

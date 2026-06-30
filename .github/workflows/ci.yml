@@ -293,7 +293,8 @@ jobs:
       - name: helm template (defaults)
         run: |
           helm template news-dashboard ./helm/news-dashboard \
-            --set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only"
+            --set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only" \
+            --set-string "postgresql.password=dummy-postgres-password-for-render-only"
 
       - name: helm template (production-like overrides)
         run: |
@@ -305,6 +306,7 @@ jobs:
             --set "service.nodePort=30088" \
             --set "postgresql.persistence.hostPath=/home/ioachim-minipc/news-dashboard-postgres-data" \
             --set-string "app.auth.sessionSecret=dummy-session-secret-for-render-only" \
+            --set-string "postgresql.password=dummy-postgres-password-for-render-only" \
             --set "app.ai.existingSecret=news-dashboard-ai" \
             --set "app.push.existingSecret=news-dashboard-push" \
             --set-string "app.ai.freeLlmBaseUrl=http://192.168.0.75:9130/v1" \
@@ -342,9 +344,12 @@ jobs:
         with:
           fetch-depth: 0 # tags + history for version computation
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
+      # No actions/setup-python here: this job runs on the self-hosted runner,
+      # which has no prebuilt Python 3.14 in the actions tool-cache for its
+      # OS/arch (setup-python fails with "version '3.14' … was not found").
+      # The changelog step only needs the runner's system python3 to run
+      # scripts/update_changelog.py (pure stdlib), matching release.yml's
+      # self-hosted job, which also runs without setup-python.
 
       # Derive the release version from tags + commits and bake it into the
       # image, so /api/version and /api/changelog match the deployed code.
@@ -455,6 +460,14 @@ jobs:
   # │  SESSION_SECRET   A long random string used to sign app sessions.    │
   # │                   Required when Keycloak auth is enabled.            │
   # │                                                                      │
+  # │  POSTGRES_        Password for the bundled in-cluster PostgreSQL      │
+  # │  PASSWORD         StatefulSet. Required when postgresql.enabled is   │
+  # │                   true (the default). Changing this secret in the    │
+  # │                   cluster does NOT rotate an already-initialized     │
+  # │                   database password; existing deployments that used  │
+  # │                   the old default must run ALTER USER on Postgres    │
+  # │                   separately.                                        │
+  # │                                                                      │
   # │                   SHORTCUT: if you make the GHCR package public      │
   # │                   (repo Settings → Packages → Change visibility),    │
   # │                   you can skip GHCR_TOKEN entirely and remove the    │
@@ -484,6 +497,7 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_HOST: ${{ vars.LANGFUSE_HOST }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_EMAIL: ${{ vars.VAPID_EMAIL }}
@@ -492,6 +506,11 @@ jobs:
 
           if [ -z "$SESSION_SECRET" ]; then
             echo "SESSION_SECRET GitHub Actions secret is required for production auth." >&2
+            exit 1
+          fi
+
+          if [ -z "$POSTGRES_PASSWORD" ]; then
+            echo "POSTGRES_PASSWORD GitHub Actions secret is required for production DB." >&2
             exit 1
           fi
 
@@ -581,6 +600,7 @@ jobs:
             --set postgresql.persistence.hostPath=/home/ioachim-minipc/news-dashboard-postgres-data
             --set ingress.enabled=false
             --set-string app.auth.sessionSecret="$SESSION_SECRET"
+            --set-string postgresql.password="$POSTGRES_PASSWORD"
             "${ai_helm_args[@]}"
             "${push_helm_args[@]}"
           )

@@ -209,18 +209,9 @@ Enable auth before exposing an instance outside a trusted network. See
 
 ## Contributing
 
-Issues and PRs are welcome. Significant architectural decisions are documented as [Architecture Decision Records (ADRs)](docs/adr/README.md). When introducing major structural changes, new infrastructure dependencies, or shifting runtime contracts, please propose a new ADR using the provided [template](docs/adr/0000-template.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, conventions, and how to land your first PR.
 
-### Dev Container / GitHub Codespaces
-
-You can start development instantly using a pre-configured Dev Container or GitHub Codespaces:
-
-1. Open the repository in VS Code and run the **Dev Containers: Reopen in Container** command, or launch a new GitHub Codespace.
-2. The environment comes pre-configured with Python 3.14, Node LTS, and PostgreSQL.
-3. Dependencies are installed and the database is initialized automatically.
-4. Run `make test-smoke` inside the container terminal to verify your setup.
-
-Alternatively, for local manual setup, run `make check` before opening a PR when local Python, Node, PostgreSQL, and browser test dependencies are installed.
+New to the project? Browse [good first issues](https://github.com/lihor-hub/news-dashboard/issues?q=is%3Aopen+label%3A%22good+first+issue%22) — beginner-friendly tasks with clear scope.
 
 Keep runtime database code PostgreSQL-specific: psycopg parameters, PostgreSQL
 SQL, and existing database helpers. Do not add SQLite runtime fallbacks or

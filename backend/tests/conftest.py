@@ -118,7 +118,7 @@ def pg_url() -> Generator[str]:
     worker_schema = None
     original_url = service_url
 
-    if worker_id and worker_id != "master":
+    if service_url and worker_id and worker_id != "master":
         worker_schema = f"test_{worker_id}"
 
         # Create/recreate the schema using the base DSN
@@ -135,9 +135,11 @@ def pg_url() -> Generator[str]:
         service_url = f"{original_url}{separator}options=-csearch_path%3D{worker_schema}"
 
     orig_db_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = service_url
+    if service_url:
+        os.environ["DATABASE_URL"] = service_url
 
-    init_db(database_url=service_url)
+    if service_url:
+        init_db(database_url=service_url)
 
     yield service_url
 
@@ -146,7 +148,7 @@ def pg_url() -> Generator[str]:
     else:
         os.environ["DATABASE_URL"] = orig_db_url
 
-    if worker_schema:
+    if worker_schema and original_url:
         try:
             from psycopg import sql
 

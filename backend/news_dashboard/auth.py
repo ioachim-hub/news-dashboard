@@ -175,7 +175,7 @@ def verify_session_token(token: str) -> dict[str, Any] | None:
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, username, email, is_admin, created_at, last_login_at "
+            "SELECT id, username, email, is_admin, is_guest, created_at, last_login_at "
             "FROM users WHERE id=%s",
             (user_id,),
         ).fetchone()
@@ -185,7 +185,7 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
 def get_user_by_username(username: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, username, email, is_admin, created_at, last_login_at, password_hash"
+            "SELECT id, username, email, is_admin, is_guest, created_at, last_login_at, password_hash"
             " FROM users WHERE username=%s",
             (username,),
         ).fetchone()
@@ -195,7 +195,7 @@ def get_user_by_username(username: str) -> dict[str, Any] | None:
 def get_user_by_email(email: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, username, email, is_admin, created_at, last_login_at "
+            "SELECT id, username, email, is_admin, is_guest, created_at, last_login_at "
             "FROM users WHERE email=%s",
             (email,),
         ).fetchone()
@@ -208,15 +208,19 @@ def create_user(
     *,
     email: str | None = None,
     is_admin: bool = False,
+    is_guest: bool = False,
     db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     password_hash = hash_password(password)
     connection = connect(db_path) if db_path is not None else connect()
     with connection as conn:
         row = conn.execute(
-            "INSERT INTO users(username, password_hash, email, is_admin)"
-            " VALUES(%s, %s, %s, %s) RETURNING id, username, email, is_admin, created_at",
-            (username, password_hash, email, bool(is_admin)),
+            """
+            INSERT INTO users(username, password_hash, email, is_admin, is_guest)
+            VALUES(%s, %s, %s, %s, %s)
+            RETURNING id, username, email, is_admin, is_guest, created_at
+            """,
+            (username, password_hash, email, bool(is_admin), bool(is_guest)),
         ).fetchone()
         if row is None:
             msg = "User insert returned no row"
@@ -227,7 +231,10 @@ def create_user(
 def list_users() -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, username, email, is_admin, created_at, last_login_at FROM users ORDER BY id"
+            """
+            SELECT id, username, email, is_admin, is_guest, created_at, last_login_at
+            FROM users ORDER BY id
+            """,
         ).fetchall()
         return [row_to_dict(r) for r in rows]
 
@@ -311,6 +318,15 @@ async def require_admin(
 ) -> dict[str, Any]:
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+async def require_not_guest(
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Reject guest (demo) users from mutating data."""
+    if user.get("is_guest"):
+        raise HTTPException(status_code=403, detail="Guest accounts cannot modify data")
     return user
 
 

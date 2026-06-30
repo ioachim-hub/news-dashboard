@@ -117,5 +117,17 @@ def improve_prompt(
     flush()
 
 
+@app.command(name="seed-demo")
+def seed_demo_cmd() -> None:
+    """Seed demo data: guest user + sample articles (requires DEMO_MODE=true)."""
+    from news_dashboard.demo import seed_demo
+
+    result = seed_demo()
+    if result.get("skipped"):
+        typer.echo(f"skipped: {result['reason']}")
+    else:
+        typer.echo(f"demo seeded: guest user created, {result.get('articles', 0)} articles")
+
+
 if __name__ == "__main__":
     app()

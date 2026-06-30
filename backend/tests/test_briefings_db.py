@@ -180,7 +180,7 @@ def test_postgres_schema_has_briefings_table(pg_url: str) -> None:
     with psycopg.connect(pg_url) as conn:
         row = conn.execute(
             "SELECT 1 FROM information_schema.tables"
-            " WHERE table_name = 'briefings' AND table_schema = 'public'"
+            " WHERE table_name = 'briefings' AND table_schema = current_schema()"
         ).fetchone()
     assert row is not None, "briefings table missing after init_db"
 
@@ -189,7 +189,7 @@ def test_postgres_schema_has_briefing_articles_table(pg_url: str) -> None:
     with psycopg.connect(pg_url) as conn:
         row = conn.execute(
             "SELECT 1 FROM information_schema.tables"
-            " WHERE table_name = 'briefing_articles' AND table_schema = 'public'"
+            " WHERE table_name = 'briefing_articles' AND table_schema = current_schema()"
         ).fetchone()
     assert row is not None, "briefing_articles table missing after init_db"
 

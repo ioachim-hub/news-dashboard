@@ -75,3 +75,22 @@ def test_vite_config_coverage_reporter() -> None:
     content = config_path.read_text()
     assert "reporter:" in content, "reporter not found in vite.config.ts"
     assert "lcov" in content, "lcov reporter is missing from vite.config.ts coverage settings"
+
+
+def test_codecov_upload_specifies_token() -> None:
+    """All codecov-action steps in ci.yml must specify a token."""
+    ci = _load_ci()
+    jobs = ci.get("jobs", {})
+    found_codecov = False
+    for job_name, job_data in jobs.items():
+        steps = job_data.get("steps", [])
+        for step in steps:
+            uses = step.get("uses", "")
+            if "codecov/codecov-action" in uses:
+                found_codecov = True
+                with_data = step.get("with", {})
+                assert "token" in with_data, (
+                    f"Job `{job_name}` has step `{step.get('name')}` using "
+                    f"codecov-action but missing a token"
+                )
+    assert found_codecov, "No codecov/codecov-action steps found in ci.yml"

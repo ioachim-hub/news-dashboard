@@ -1,14 +1,23 @@
 # Self-Hosting
 
 **Note**: The GHCR package must be made public (or accessible via pull secret) for this to work.
-> This is a one-time maintainer action: go to the repository's Packages settings, 
+> This is a one-time maintainer action: go to the repository's Packages settings,
 > select the `ghcr.io/lihor-hub/news-dashboard` package, and change its visibility to Public.
 
 This guide explains how to deploy News Dashboard for production use using the published Docker image from GitHub Container Registry (GHCR).
 
-## Running the Published Image
+## Docker Compose: Dev vs Production
 
-Instead of building from source, you can run the pre-built image from GHCR:
+The repository provides two Docker Compose files:
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yml` | Local development only (builds from source, insecure dev defaults) |
+| `docker-compose.prod.yml` | Production deployment (uses published image, requires secure configuration) |
+
+> **Warning**: Never use `docker-compose.yml` for production. It contains insecure defaults suitable only for local development.
+
+## Running with Docker Compose (Production)
 
 ### Prerequisites
 
@@ -16,95 +25,34 @@ Instead of building from source, you can run the pre-built image from GHCR:
 - Docker or container runtime
 - Required environment variables (see [Configuration](#configuration))
 
-### Step 1: Start PostgreSQL
+### Step 1: Create Environment File
+
+Copy `.env.example` to `.env` and fill in the required values:
 
 ```bash
-docker run --rm -d \
-  --name news-dashboard-postgres \
-  -e POSTGRES_DB=news_dashboard \
-  -e POSTGRES_USER=news_dashboard \
-  -e POSTGRES_PASSWORD=your-secure-password-here \
-  -v news-dashboard-postgres-data:/var/lib/postgresql/data \
-  -p 5432:5432 \
-  postgres:16-alpine
+cp .env.example .env
+# Edit .env with your secure values
 ```
 
-### Step 2: Run the Application
+See the [.env.example reference](#environment-variables) below for all available options.
+
+### Step 2: Start the Stack
 
 ```bash
-docker run -d \
-  --name news-dashboard \
-  -p 8080:8080 \
-  --link news-dashboard-postgres:postgres \
-  -e POSTGRES_HOST=postgres \
-  -e POSTGRES_PORT=5432 \
-  -e POSTGRES_DB=news_dashboard \
-  -e POSTGRES_USER=news_dashboard \
-  -e POSTGRES_PASSWORD=your-secure-password-here \
-  -e SESSION_SECRET="$(openssl rand -hex 32)" \
-  -e BOOTSTRAP_ADMIN_USERNAME=admin \
-  -e BOOTSTRAP_ADMIN_PASSWORD=your-secure-password-here \
-  --restart unless-stopped \
-  ghcr.io/lihor-hub/news-dashboard:latest
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-> **Note**: Replace `your-secure-password-here` with strong, unique values for production use.
+The compose file will fail fast if required secrets (`SESSION_SECRET`, `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD`, `POSTGRES_PASSWORD`) are not set.
 
-### Using Docker Compose
+### Verifying the Deployment
 
-For a more manageable setup, you can use Docker Compose:
-
-Create a `docker-compose.yml` file:
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: news_dashboard
-      POSTGRES_USER: news_dashboard
-      POSTGRES_PASSWORD: your-secure-password-here
-    volumes:
-      - news-dashboard-postgres:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-
-  news-dashboard:
-    image: ghcr.io/lihor-hub/news-dashboard:latest
-    ports:
-      - "8080:8080"
-    environment:
-      POSTGRES_HOST: postgres
-      - POSTGRES_PORT: "5432"
-      - POSTGRES_DB: news_dashboard
-      - POSTGRES_USER: news_dashboard
-      - POSTGRES_PASSWORD: your-secure-password-here
-      - SESSION_SECRET: ${SESSION_SECRET}
-      - BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME}
-      - BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
-      # Add other required environment variables as needed
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-
-volumes:
-  news-dashboard-postgres:
-```
-
-Create a `.env` file with your configuration:
-
-```env
-SESSION_SECRET=your-session-secret-here
-BOOTSTRAP_ADMIN_USERNAME=admin
-BOOTSTRAP_ADMIN_PASSWORD=your-secure-password-here
-# Add other required variables as needed
-```
-
-Then start the stack:
 ```bash
-docker compose up -d
+# Check service status
+docker compose -f docker-compose.prod.yml ps
+
+# Check health endpoint
+curl http://localhost:8080/api/health
+# Should return: {"status":"ok"}
 ```
 
 ## Image Tags and Versioning
@@ -117,50 +65,112 @@ The image is available with the following tags:
 
 For production deployments, we recommend pinning to a specific version or commit SHA to ensure consistency and prevent unexpected updates.
 
-Example of pinning to a specific version:
-```bash
-docker run -d \
-  # ... other options ...
-  ghcr.io/lihor-hub/news-dashboard:v1.21.0
+### Updating docker-compose.prod.yml to Pin a Version
+
+Edit the `image` line in `docker-compose.prod.yml`:
+
+```yaml
+services:
+  news-dashboard:
+    image: ghcr.io/lihor-hub/news-dashboard:v1.21.0  # Pin to specific version
+    # ...
 ```
 
-Or pinning to a commit SHA:
+Then pull and restart:
+
 ```bash
-docker run -d \
-  # ... other options ...
-  ghcr.io/lihor-hub/news-dashboard:a1b2c3d4e5f67890
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-## Configuration
+## Environment Variables
 
 See the [README Configuration section](../README.md#configuration) for the complete list of environment variables.
 
-**Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values like:
-- `SESSION_SECRET`
-- `BOOTSTRAP_ADMIN_PASSWORD`
-- `POSTGRES_PASSWORD`
-- API keys for AI features (`OPENAI_API_KEY`, `FREE_LLM_API_KEY`, etc.)
+### Required Variables
 
-## Health Check
+| Variable | Description |
+|----------|-------------|
+| `SESSION_SECRET` | Signed session key. Generate with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `BOOTSTRAP_ADMIN_USERNAME` | Initial admin username (created on first run) |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Initial admin password |
+| `POSTGRES_PASSWORD` | PostgreSQL database password |
 
-Verify your instance is healthy:
-```bash
-curl http://localhost:8080/api/health
-# Should return: {"status":"ok"}
+### Optional AI Features
 
-curl http://localhost:8080/api/health/details
-# Returns detailed health information
-```
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key for summaries, insights, TTS |
+| `FREE_LLM_API_KEY` | Alternative LLM API key |
+| `FREE_LLM_BASE_URL` | Custom LLM endpoint |
+
+> **Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values.
 
 ## Upgrading
 
 To upgrade to a newer version:
 
-1. Pull the new image: `docker pull ghcr.io/lihor-hub/news-dashboard:<new-tag>`
-2. Stop the current container: `docker stop news-dashboard`
-3. Remove the container: `docker rm news-dashboard`
-4. Start the new container with the same configuration
-5. Run database migrations if needed: `docker run --rm --link news-dashboard-postgres:postgres -e POSTGRES_HOST=postgres -e POSTGRES_PORT=5432 -e POSTGRES_DB=news_dashboard -e POSTGRES_USER=news_dashboard -e POSTGRES_PASSWORD=your-password ghcr.io/lihor-hub/news-dashboard:<new-tag> news-dashboard init`
+1. Pull the new image: `docker compose -f docker-compose.prod.yml pull`
+2. Restart the service: `docker compose -f docker-compose.prod.yml up -d`
+3. Run database migrations if needed:
+   ```bash
+   docker compose -f docker-compose.prod.yml run --rm news-dashboard news-dashboard init
+   ```
+
+> **Important**: Before upgrading, back up your PostgreSQL database. See [POSTGRES_BACKUP.md](./POSTGRES_BACKUP.md) for backup strategies.
+
+## Health Checks
+
+Verify your instance is healthy:
+
+```bash
+# Basic health check (public)
+curl http://localhost:8080/api/health
+# Should return: {"status":"ok"}
+
+# Detailed health (admin only)
+curl http://localhost:8080/api/health/details
+# Returns database, scheduler, and source health information
+```
+
+### Kubernetes/Container Probe Examples
+
+```yaml
+# Kubernetes liveness probe
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 30
+
+# Kubernetes readiness probe
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Docker HEALTHCHECK
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+```
+
+## Resource Sizing
+
+Recommended resources for a personal instance with default sources:
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 0.5 cores | 1 core |
+| RAM | 512 MB | 1 GB |
+| Disk | 5 GB | 10 GB+ (depends on article retention) |
+
+For high ingest frequency or many users, scale resources accordingly.
 
 ## Backups
 
@@ -168,6 +178,6 @@ Regularly back up your PostgreSQL database. See [POSTGRES_BACKUP.md](./POSTGRES_
 
 ## Next Steps
 
-- Consider setting up HTTPS with a reverse proxy (see [CADDY_HTTPS_SETUP.md](./CADDY_HTTPS_SETUP.md))
+- **Set up HTTPS** with a reverse proxy (see [CADDY_HTTPS_SETUP.md](./CADDY_HTTPS_SETUP.md))
 - Configure optional features like AI capabilities, Keycloak SSO, or Web Push notifications
 - Set up regular backups of your PostgreSQL data

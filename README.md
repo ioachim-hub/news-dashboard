@@ -210,11 +210,23 @@ Run a specific lane with `pytest -m smoke`, `pytest -m "not db"`, or `pytest -m 
 ```text
 backend/news_dashboard/   FastAPI app, ingest, auth, scheduler, CLI, database layer
 frontend/src/             React app
-docs/                     Architecture, product, deployment, and auth notes
+docs/                     Architecture, product, deployment, auth, and user guides
 helm/news-dashboard/      Kubernetes chart
 deploy/                   Deployment files
 scripts/                  Maintenance scripts
 ```
+
+## Documentation
+
+For end-user documentation, see the [User Guide](docs/user-guide/README.md) which covers:
+- Concepts and terminology
+- The Today Feed and triage workflow
+- Managing sources and subscriptions
+- Search, briefings, and recommendations
+- Saved and read history
+- Sharing articles with other users
+
+For technical documentation (architecture, deployment, authentication), see the files in the `docs/` directory.
 
 ## Deployment
 

@@ -183,8 +183,21 @@ The production image serves the built frontend through FastAPI on port `8080`.
 For Kubernetes:
 
 ```bash
-helm upgrade --install news-dashboard ./helm/news-dashboard
+helm upgrade --install news-dashboard ./helm/news-dashboard \
+  --set-string postgresql.password=<choose-a-secure-password>
 ```
+
+When bundled PostgreSQL is enabled (the default), `postgresql.password` is
+required. Helm will fail to render if it is empty. For CI/chart rendering
+only, pass a dummy value like `--set-string postgresql.password=dummy`.
+An existing Kubernetes Secret can be used instead of the Helm value;
+see `values.yaml` for the `app.postgresExternal` or `app.databaseUrl` paths.
+
+**Existing deployments:** if you previously deployed with the old default
+password (`news-dashboard-local-password`), changing the Helm value or
+Kubernetes Secret alone does **not** rotate an already-initialized database
+password. You must also run `ALTER USER news_dashboard WITH PASSWORD
+'<new-password>'` inside PostgreSQL after updating the secret.
 
 Enable auth before exposing an instance outside a trusted network. See
 [docs/KEYCLOAK_AUTH.md](docs/KEYCLOAK_AUTH.md) and

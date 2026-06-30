@@ -6,6 +6,18 @@
 
 This guide explains how to deploy News Dashboard for production use using the published Docker image from GitHub Container Registry (GHCR).
 
+- [Docker Compose: Dev vs Production](#docker-compose-dev-vs-production)
+- [Running with Docker Compose (Production)](#running-with-docker-compose-production)
+- [Image Tags and Versioning](#image-tags-and-versioning)
+- [Environment Variables](#environment-variables)
+- [Healthchecks](#healthchecks)
+- [Upgrading](#upgrading)
+- [Rolling Back](#rolling-back)
+- [Background Jobs](#background-jobs)
+- [Sizing](#sizing)
+- [Backups](#backups)
+- [Next Steps](#next-steps)
+
 ## Docker Compose: Dev vs Production
 
 The repository provides two Docker Compose files:
@@ -106,75 +118,252 @@ See the [README Configuration section](../README.md#configuration) for the compl
 
 > **Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values.
 
-## Upgrading
+## Healthchecks
 
-To upgrade to a newer version:
+News Dashboard exposes several health and readiness endpoints for monitoring and container orchestration.
 
-1. Pull the new image: `docker compose -f docker-compose.prod.yml pull`
-2. Restart the service: `docker compose -f docker-compose.prod.yml up -d`
-3. Run database migrations if needed:
-   ```bash
-   docker compose -f docker-compose.prod.yml run --rm news-dashboard news-dashboard init
-   ```
+### Endpoint Reference
 
-> **Important**: Before upgrading, back up your PostgreSQL database. See [POSTGRES_BACKUP.md](./POSTGRES_BACKUP.md) for backup strategies.
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /api/live` | Public | Lightweight liveness — returns `{"status":"ok"}` with no database dependency. Use for Kubernetes `livenessProbe`. |
+| `GET /api/ready` | Public | Readiness — checks database connectivity by running `SELECT 1`. Returns 200 on success, 503 on failure. Use for Kubernetes `readinessProbe`. |
+| `GET /api/health` | Public | Full health — calls `init_db()` and returns `{"status":"ok"}`. Suitable for load-balancer checks. |
+| `GET /api/health/details` | Admin-only | Detailed diagnostics — returns `status`, `database` info, and `next_ingest_at`. Requires admin authentication. |
+| `GET /api/sources/health` | Authenticated | Per-source health status for the current user — shows last-checked time, last error, and fetch counts for each source. |
+| `GET /api/scheduler/status` | Admin-only | Scheduler state — whether the in-process scheduler is running, its interval, and configured jobs. |
 
-## Health Checks
+### Docker Probe Configuration
 
-Verify your instance is healthy:
-
-```bash
-# Basic health check (public)
-curl http://localhost:8080/api/health
-# Should return: {"status":"ok"}
-
-# Detailed health (admin only)
-curl http://localhost:8080/api/health/details
-# Returns database, scheduler, and source health information
-```
-
-### Kubernetes/Container Probe Examples
+Add health checks to your `docker-compose.prod.yml` or `docker run`:
 
 ```yaml
-# Kubernetes liveness probe
-livenessProbe:
-  httpGet:
-    path: /api/health
-    port: 8080
-  initialDelaySeconds: 10
-  periodSeconds: 30
+# docker-compose.prod.yml snippet for the news-dashboard service
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+```
 
-# Kubernetes readiness probe
+If `curl` is not available in the container, use `wget` or the `/api/live` endpoint
+which has no dependencies:
+
+```bash
+docker run -d \
+  --name news-dashboard \
+  --health-cmd "wget -qO- http://localhost:8080/api/live" \
+  --health-interval 30s \
+  --health-timeout 5s \
+  --health-retries 3 \
+  --health-start-period 30s \
+  # ... other options ...
+  ghcr.io/lihor-hub/news-dashboard:latest
+```
+
+### Kubernetes Probe Configuration
+
+The Helm chart ships with pre-configured probes. If you are writing a raw Deployment manifest:
+
+```yaml
 readinessProbe:
   httpGet:
-    path: /api/health
+    path: /api/ready
     port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
 
-# Docker HEALTHCHECK
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
-  interval: 30s
-  timeout: 10s
-  retries: 3
+livenessProbe:
+  httpGet:
+    path: /api/live
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 20
 ```
 
-## Resource Sizing
+The Helm chart at `helm/news-dashboard/` already includes these probes. See
+`helm/news-dashboard/templates/deployment.yaml` for the full configuration.
 
-Recommended resources for a personal instance with default sources:
+### Monitoring
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 0.5 cores | 1 core |
-| RAM | 512 MB | 1 GB |
-| Disk | 5 GB | 10 GB+ (depends on article retention) |
+For production monitoring:
 
-For high ingest frequency or many users, scale resources accordingly.
+- **Liveness**: use `GET /api/live` — a failure means the app process is stuck and should be restarted.
+- **Readiness**: use `GET /api/ready` — a failure means the database is unreachable or the connection pool is exhausted.
+- **Details**: admin users can check `GET /api/health/details` for an overview of database stats and the next scheduled ingest.
+- **Source health**: check `GET /api/sources/health` after an ingest run to see which sources failed.
+
+## Upgrading
+
+Upgrade safely by following these steps in order.
+
+### Pre-Upgrade Checklist
+
+1. **Read the release notes** — check the [CHANGELOG](../CHANGELOG.md) for any breaking changes, config deprecations, or manual steps.
+2. **Back up your database** — a backup is your safety net for rollback. See [POSTGRES_BACKUP.md](./POSTGRES_BACKUP.md) for backup strategies.
+3. **Check the new image tag** — browse available tags on [GHCR](https://ghcr.io/lihor-hub/news-dashboard) or the [releases page](https://github.com/lihor-hub/news-dashboard/releases).
+
+### Docker Compose (Production)
+
+```bash
+# 1. Pull the new image
+docker compose -f docker-compose.prod.yml pull
+
+# 2. Restart the stack
+docker compose -f docker-compose.prod.yml up -d
+
+# 3. Run database migrations if needed
+# The app runs init_db() on startup automatically, but if release notes
+# mention a manual migration step, run it explicitly:
+docker compose -f docker-compose.prod.yml run --rm news-dashboard news-dashboard init
+```
+
+### Kubernetes (Helm)
+
+```bash
+# 1. Update the image tag and pull policy
+helm upgrade news-dashboard ./helm/news-dashboard \
+  --set image.tag=v1.22.0 \
+  --set image.pullPolicy=Always \
+  --reuse-values
+
+# 2. Rollout restarts the deployment automatically.
+#    The app runs init_db() on startup.
+kubectl -n news-dashboard rollout status deployment/news-dashboard
+```
+
+### Migration / Schema Updates
+
+The app calls `init_db()` on every startup, which creates missing tables and
+indexes. Schema changes that require a migration step (add column, data
+transformation) are documented in the [CHANGELOG](../CHANGELOG.md) release notes
+with the exact command to run:
+
+```bash
+# Example manual migration step (if release notes call for it):
+docker compose -f docker-compose.prod.yml run --rm news-dashboard news-dashboard init
+```
+
+If you see a startup error related to a missing column or table, running
+`news-dashboard init` (or restarting the container, which calls `init_db`)
+typically resolves it.
+
+## Rolling Back
+
+If an upgrade causes issues, roll back using the database backup and the
+previous image tag:
+
+```bash
+# 1. Stop the new stack
+docker compose -f docker-compose.prod.yml down
+
+# 2. Restore the database from your pre-upgrade backup
+#    (see POSTGRES_BACKUP.md for restore instructions)
+
+# 3. Revert the image tag in docker-compose.prod.yml to the previous version
+
+# 4. Start the previous version
+docker compose -f docker-compose.prod.yml up -d
+```
+
+For Helm, rollback directly:
+
+```bash
+helm rollback news-dashboard 1
+```
+
+Rollback is the reason backups are important — always back up the database
+**before** starting an upgrade (see the [Pre-Upgrade Checklist](#pre-upgrade-checklist)).
+
+## Background Jobs
+
+News Dashboard runs several background jobs that an operator should be aware of:
+
+| Job | When | What it does |
+|-----|------|-------------|
+| **Ingest** | Every 30 minutes (configurable via `INGEST_INTERVAL_SCHEDULER_ENABLED` / in-process scheduler, or as a Kubernetes CronJob) | Fetches new articles from all enabled sources, parses feeds, creates article records, fetches full bodies, and scores articles for importance. |
+| **Daily Briefing** | Once daily (scheduled time varies) | Generates an AI-summarized briefing of top articles. Skipped when no AI key is configured (`FREE_LLM_API_KEY` / `OPENAI_API_KEY`). |
+| **Analytics Cleanup** | Daily | Prunes `user_events` older than `ANALYTICS_RETENTION_DAYS` (default: 180). Configurable with the `ANALYTICS_RETENTION_DAYS` env var. |
+| **Recommendation Recalculation** | During ingest + daily full recalculation | Refreshes the article similarity / recommendation model. The ingest-time pass repairs stale scores; the daily pass does a full recalc. |
+
+### In-Process Scheduler vs. Kubernetes CronJob
+
+The app has two scheduling mechanisms. By default, the in-process scheduler runs
+ingest every 30 minutes. When deployed via Helm with the `ingestCronJob`
+enabled, the in-process scheduler disables itself (set via
+`INGEST_INTERVAL_SCHEDULER_ENABLED=false`) and the Kubernetes CronJob runs
+ingest every 6 hours instead.
+
+If you see duplicate ingest runs, ensure only one scheduler is active.
+
+### Controlling Background Jobs
+
+- **Disable the in-process scheduler**: set `INGEST_INTERVAL_SCHEDULER_ENABLED=false`
+- **Manual ingest**: call `POST /api/ingest` or run `news-dashboard ingest` from the CLI
+- **Scheduler admin**: authenticated admin users can pause, resume, and change the ingest interval via the `/api/scheduler/*` endpoints
+
+## Sizing
+
+News Dashboard is designed for personal or small-team use. Below are rough
+guidelines for a typical instance (1–5 users, ~50 sources, ~500 new articles/day).
+
+### Container Resources
+
+| Component | CPU (request / limit) | Memory (request / limit) |
+|-----------|-----------------------|--------------------------|
+| App (news-dashboard) | 50m / 500m | 128Mi / 512Mi |
+| Ingest CronJob (if separate) | 100m / 500m | 256Mi / 512Mi |
+| PostgreSQL | 100m / 500m | 256Mi / 512Mi |
+
+These are the defaults shipped in the Helm chart. A personal instance usually
+runs comfortably at these levels. During ingest, CPU and memory spike briefly as
+feeds are fetched and parsed.
+
+### Storage
+
+| Data | Expected size | Notes |
+|------|---------------|-------|
+| **PostgreSQL (articles + metadata)** | ~1–2 GB per year for a personal instance | Article bodies are stored in the database as text. 50 sources × ~10 new articles/day × ~50 KB average body → ~250 MB/year for bodies alone. |
+| **PostgreSQL WAL** | Temporary; varies | Depends on checkpoint settings and ingest cadence. Usually under 1 GB. |
+| **Analytics events** | Pruned automatically | Cleaned daily per `ANALYTICS_RETENTION_DAYS`. At ~1 KB/event and ~100 events/user/day, ~50 MB retained at 180-day retention. |
+
+**Total storage estimate**: 5–10 GB should be comfortable for a personal
+instance running for several years. A cheap 20 GB volume leaves plenty of headroom.
+
+### Ingest Cadence
+
+- **Personal use**: every 6 hours is sufficient (the default CronJob schedule).
+- **Power user**: every 30 minutes (the in-process scheduler default).
+- **Multiple users on one instance**: the default 30-minute interval handles
+  dozens of users without issue.
+
+Increase ingest frequency cautiously if sources are API-rate-limited. The app
+records source health on each run, so you can monitor which sources start
+failing if you push too fast.
+
+### Tuning Guidance
+
+- **Memory**: if the app OOM-kills during ingest, increase the memory limit to
+  1 Gi for the app container. Ingest fetches and parses multiple feeds
+  concurrently.
+- **Database connections**: the app uses a connection pool. For a personal
+  instance the defaults are fine. For multi-user deployments, consider raising
+  `PG_MAX_CONNECTIONS` on the Postgres side.
+- **Analytics retention**: reduce `ANALYTICS_RETENTION_DAYS` to 30 if you want
+  to minimize database growth. Increase to 365 if you want a full year of
+  reading analytics.
 
 ## Backups
 
-Regularly back up your PostgreSQL database. See [POSTGRES_BACKUP.md](./POSTGRES_BACKUP.md) for backup strategies.
+Regularly back up your PostgreSQL database. See [POSTGRES_BACKUP.md](./POSTGRES_BACKUP.md) for:
+
+- Enabling the Helm CronJob backup
+- Manual backup and restore procedures
+- Verifying dump integrity
+- Retention policy configuration
+
+> **Always back up before an upgrade** — this is your rollback path.
 
 ## Next Steps
 

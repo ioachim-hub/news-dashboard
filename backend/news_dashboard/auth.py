@@ -185,8 +185,9 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
 def get_user_by_username(username: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, username, email, is_admin, is_guest, created_at, last_login_at, password_hash"
-            " FROM users WHERE username=%s",
+            "SELECT id, username, email, is_admin, is_guest, "
+            "created_at, last_login_at, password_hash "
+            "FROM users WHERE username=%s",
             (username,),
         ).fetchone()
         return row_to_dict(row) if row else None

@@ -170,6 +170,39 @@ describe('article list endpoints', () => {
   });
 });
 
+describe('share endpoints', () => {
+  it('returns the created share and posts share annotations', async () => {
+    const { calls } = stubFetch((url) => {
+      if (url === '/api/articles/7/share') {
+        return jsonOk({ id: 42, article_id: 7 });
+      }
+      return jsonOk({
+        id: 9,
+        share_id: 42,
+        highlighted_text: 'Important passage',
+        offset_chars: 0,
+        note: null,
+        created_at: '2026-07-01T00:00:00Z',
+      });
+    });
+
+    const share = await api.shareArticle(7, 2, 'read this');
+    const annotation = await api.createShareAnnotation(share.id, {
+      highlighted_text: 'Important passage',
+      offset_chars: 0,
+    });
+
+    expect(share.id).toBe(42);
+    expect(annotation.highlighted_text).toBe('Important passage');
+    expect(calls[0].url).toBe('/api/articles/7/share');
+    expect(calls[0].init?.body).toBe(JSON.stringify({ to_user_id: 2, note: 'read this' }));
+    expect(calls[1].url).toBe('/api/shares/42/annotations');
+    expect(calls[1].init?.body).toBe(
+      JSON.stringify({ highlighted_text: 'Important passage', offset_chars: 0, note: null })
+    );
+  });
+});
+
 describe('fetchArticleAudioUrl', () => {
   it('returns an object URL from the audio blob', async () => {
     const blob = new Blob(['x']);

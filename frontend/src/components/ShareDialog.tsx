@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { fetchShareableUsers, shareArticle } from '@/api';
+import { createShareAnnotation, fetchShareableUsers, shareArticle } from '@/api';
 
 export interface ShareTarget {
   id: number;
@@ -23,6 +23,10 @@ interface ShareDialogProps {
   article: ShareTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  pendingHighlight?: {
+    text: string;
+    note?: string;
+  } | null;
 }
 
 type Mode = 'choose' | 'internal';
@@ -33,7 +37,7 @@ type Mode = 'choose' | 'internal';
  *      OS share sheet / clipboard (external).
  *   2. For internal, pick a recipient and optionally add a note.
  */
-export function ShareDialog({ article, open, onOpenChange }: ShareDialogProps) {
+export function ShareDialog({ article, open, onOpenChange, pendingHighlight }: ShareDialogProps) {
   const [mode, setMode] = useState<Mode>('choose');
   const [query, setQuery] = useState('');
   const [note, setNote] = useState('');
@@ -81,7 +85,20 @@ export function ShareDialog({ article, open, onOpenChange }: ShareDialogProps) {
     if (!article) return;
     setSendingTo(userId);
     try {
-      await shareArticle(article.id, userId, note);
+      const share = await shareArticle(article.id, userId, note);
+      if (pendingHighlight?.text) {
+        try {
+          await createShareAnnotation(share.id, {
+            highlighted_text: pendingHighlight.text,
+            offset_chars: 0,
+            note: pendingHighlight.note ?? null,
+          });
+        } catch {
+          toast.error('Article shared, but the selected passage could not be attached');
+          close();
+          return;
+        }
+      }
       toast.success(`Sent to ${username}`);
       close();
     } catch {
@@ -157,6 +174,14 @@ export function ShareDialog({ article, open, onOpenChange }: ShareDialogProps) {
               onChange={(e) => setNote(e.target.value)}
               maxLength={500}
             />
+            {pendingHighlight?.text ? (
+              <div className="rounded-md border border-border bg-surface/70 px-3 py-2">
+                <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Selected passage
+                </div>
+                <p className="line-clamp-3 text-sm text-foreground">{pendingHighlight.text}</p>
+              </div>
+            ) : null}
             <div className="max-h-56 overflow-y-auto rounded-md border border-border">
               {usersQuery.isLoading ? (
                 <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">

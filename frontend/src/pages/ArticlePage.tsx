@@ -17,6 +17,7 @@ import {
   Volume2,
   Square,
   Share2,
+  Highlighter,
   Sparkles,
   Lightbulb,
   Scale,
@@ -343,9 +344,32 @@ export function ArticlePage() {
   }
 
   const [shareOpen, setShareOpen] = useState(false);
+  const [selectedShareText, setSelectedShareText] = useState('');
+  const [pendingShareHighlight, setPendingShareHighlight] = useState<{ text: string } | null>(null);
 
   function handleShare() {
     if (!article) return;
+    setPendingShareHighlight(null);
+    setShareOpen(true);
+  }
+
+  function selectedTextWithinReader(): string {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? '';
+    if (!selection || !text || selection.rangeCount === 0) return '';
+    const reader = document.querySelector('.reader-prose');
+    const container = selection.getRangeAt(0).commonAncestorContainer;
+    if (!reader?.contains(container)) return '';
+    return text;
+  }
+
+  function updateSelectedShareText() {
+    setSelectedShareText(selectedTextWithinReader());
+  }
+
+  function handleShareSelected() {
+    if (!article || !selectedShareText) return;
+    setPendingShareHighlight({ text: selectedShareText });
     setShareOpen(true);
   }
 
@@ -740,6 +764,8 @@ export function ArticlePage() {
               ) : (
                 <div
                   className="reader-prose"
+                  onMouseUp={updateSelectedShareText}
+                  onKeyUp={updateSelectedShareText}
                   dangerouslySetInnerHTML={{
                     __html: renderBody(
                       showOriginal && article.originalBody ? article.originalBody : article.body
@@ -805,10 +831,21 @@ export function ArticlePage() {
         </div>,
         document.body
       )}
+      {selectedShareText ? (
+        <button
+          type="button"
+          onClick={handleShareSelected}
+          className="fixed bottom-20 left-1/2 z-30 inline-flex -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-lg hover:bg-surface"
+        >
+          <Highlighter className="size-4" strokeWidth={1.75} />
+          Share selected text
+        </button>
+      ) : null}
       <ShareDialog
         open={shareOpen}
         onOpenChange={setShareOpen}
         article={{ id: Number(article.id), title: article.title, url: article.url }}
+        pendingHighlight={pendingShareHighlight}
       />
     </div>
   );

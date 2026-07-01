@@ -20,7 +20,7 @@ from fastapi import (
     Response,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
@@ -54,6 +54,7 @@ from news_dashboard.auth import (
     require_admin,
     require_auth,
     update_password,
+    verify_session_token,
 )
 from news_dashboard.body_fetch import fetch_and_cache_body, get_article, prefetch_article_bodies
 from news_dashboard.briefings import (
@@ -131,6 +132,11 @@ class SPAStaticFiles(StaticFiles):
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_auth()
     sync_sources()
+    # Seed demo data when DEMO_MODE is enabled.
+    if os.getenv("DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on"):
+        from news_dashboard.demo import seed_demo
+
+        seed_demo()
     start_scheduler()
     yield
     stop_scheduler()
@@ -150,6 +156,54 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=True,
 )
+
+# ── Demo mode: reject guest writes ──────────────────────────────────────────
+
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Public POST routes that a guest must still reach (login, OTP).
+_PUBLIC_UNSAFE_PREFIXES = (
+    "/api/auth/login",
+    "/api/auth/otp/",
+    "/auth/",
+)
+
+
+@app.middleware("http")
+async def reject_guest_writes(request: Request, call_next: Any) -> Any:
+    """Block unsafe-method requests from guest (demo) accounts.
+
+    Safe methods (GET, HEAD, OPTIONS) always pass through. Public auth
+    routes (login, OTP, Keycloak callback) are also exempt so that a guest
+    can still obtain a session cookie. Every other POST/PUT/PATCH/DELETE
+    that requires auth is rejected with 403 when the session belongs to a
+    guest user.
+    """
+    if request.method not in _UNSAFE_METHODS:
+        return await call_next(request)
+
+    # Allow public auth routes.
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in _PUBLIC_UNSAFE_PREFIXES):
+        return await call_next(request)
+
+    token = request.cookies.get(_SESSION_COOKIE)
+    if not token:
+        # Not authenticated — let the normal 401 flow handle it.
+        return await call_next(request)
+
+    payload = verify_session_token(token)
+    if not payload:
+        return await call_next(request)
+
+    user = get_user_by_id(payload["user_id"])
+    if user and user.get("is_guest"):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Guest accounts cannot modify data"},
+        )
+
+    return await call_next(request)
+
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 

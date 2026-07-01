@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from news_dashboard.db import connect, init_db
-from news_dashboard.main import app, _generate_opml
+from news_dashboard.main import _generate_opml, app
 
 
 @pytest.fixture
@@ -29,17 +29,23 @@ def _seed_sources(database_url: str) -> None:
             " VALUES (1, 'reader', 'x', FALSE)"
         )
         conn.execute(
-            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)"
-            " VALUES ('arxiv', 'ArXiv AI', 'https://arxiv.org/rss/cs.AI', 'ai', 'rss_feed', 50, TRUE, 1)"
+            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled,"
+            " owner_user_id)"
+            " VALUES ('arxiv', 'ArXiv AI', 'https://arxiv.org/rss/cs.AI', 'ai', 'rss_feed',"
+            " 50, TRUE, 1)"
         )
         conn.execute(
-            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)"
-            " VALUES ('hacker-news', 'Hacker News', 'https://news.ycombinator.com/rss', 'tech', 'rss_feed', 80, TRUE, 1)"
+            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled,"
+            " owner_user_id)"
+            " VALUES ('hacker-news', 'Hacker News', 'https://news.ycombinator.com/rss',"
+            " 'tech', 'rss_feed', 80, TRUE, 1)"
         )
         # A non-rss_feed source — should be excluded from OPML export
         conn.execute(
-            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)"
-            " VALUES ('hn-trending', 'HN Trending', 'https://news.ycombinator.com/trending', 'tech', 'trending_feed', 70, TRUE, 1)"
+            "INSERT INTO sources(slug, name, url, category, kind, priority, enabled,"
+            " owner_user_id)"
+            " VALUES ('hn-trending', 'HN Trending', 'https://news.ycombinator.com/trending',"
+            " 'tech', 'trending_feed', 70, TRUE, 1)"
         )
 
 
@@ -52,7 +58,7 @@ def test_generate_opml_produces_valid_xml() -> None:
         {"name": "Blog B", "url": "https://b.com/rss"},
     ]
     xml = _generate_opml(sources)
-    assert '<?xml' in xml
+    assert "<?xml" in xml
     assert '<opml version="2.0">' in xml
     assert 'text="Blog A"' in xml
     assert 'xmlUrl="https://a.com/feed.xml"' in xml
@@ -61,8 +67,8 @@ def test_generate_opml_produces_valid_xml() -> None:
 
 def test_generate_opml_empty_sources() -> None:
     xml = _generate_opml([])
-    assert '<?xml' in xml
-    assert '<body />' in xml  # body tag is self-closed when empty
+    assert "<?xml" in xml
+    assert "<body />" in xml  # body tag is self-closed when empty
 
 
 def test_generate_opml_includes_html_url() -> None:
@@ -88,9 +94,9 @@ def test_export_opml_returns_opml_document(client: TestClient, pg_clean: str) ->
     assert "Hacker News" in body
     assert "trending" not in body.lower().replace("trending_feed", "")
     # Round-trip: exported OPML should be parseable
-    import xml.etree.ElementTree as ET
+    from defusedxml.ElementTree import fromstring
 
-    root = ET.fromstring(body)
+    root = fromstring(body)
     outlines = root.findall(".//outline")
     xml_urls = [o.get("xmlUrl") for o in outlines if o.get("xmlUrl")]
     assert "https://arxiv.org/rss/cs.AI" in xml_urls
@@ -186,9 +192,7 @@ def test_import_opml_rejects_malformed_xml(client: TestClient, pg_clean: str) ->
     assert "Invalid OPML" in response.json()["detail"]
 
 
-def test_import_opml_skips_outlines_without_xmlurl(
-    client: TestClient, pg_clean: str
-) -> None:
+def test_import_opml_skips_outlines_without_xmlurl(client: TestClient, pg_clean: str) -> None:
     """Folder-level outlines (no xmlUrl) should be silently skipped."""
     init_db(database_url=pg_clean)
     with connect(database_url=pg_clean) as conn:
@@ -208,9 +212,7 @@ def test_import_opml_skips_outlines_without_xmlurl(
 """
     response = client.post(
         "/api/sources/import",
-        files={
-            "file": ("folders.opml", BytesIO(opml_folders.encode()), "application/xml")
-        },
+        files={"file": ("folders.opml", BytesIO(opml_folders.encode()), "application/xml")},
     )
     assert response.status_code == 200
     data = response.json()

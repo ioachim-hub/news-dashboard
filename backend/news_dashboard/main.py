@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_fromstring
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -330,7 +332,7 @@ class OTPLoginPayload(BaseModel):
 # ── OPML helpers ──────────────────────────────────────────────────────────────
 
 
-def _generate_opml(sources: list[dict]) -> str:
+def _generate_opml(sources: list[dict[str, Any]]) -> str:
     """Generate an OPML 2.0 XML document from a list of source dicts."""
     opml = ET.Element("opml", version="2.0")
     head = ET.SubElement(opml, "head")
@@ -1529,23 +1531,27 @@ def export_opml(
             d["subscribed"] = bool(d.pop("user_enabled", 1))
             items.append(d)
     opml_xml = _generate_opml(items)
-    return Response(content=opml_xml, media_type="text/x-opml", headers={
-        "Content-Disposition": 'attachment; filename="subscriptions.opml"',
-    })
+    return Response(
+        content=opml_xml,
+        media_type="text/x-opml",
+        headers={
+            "Content-Disposition": 'attachment; filename="subscriptions.opml"',
+        },
+    )
 
 
 @api.post("/api/sources/import")
 def import_opml(
     current_user: Annotated[dict[str, Any], Depends(require_auth)],
-    file: UploadFile = File(...),
+    file: Annotated[UploadFile, File()],
 ) -> dict[str, Any]:
     """Import RSS feed subscriptions from an OPML file."""
     init_db()
     uid = current_user["id"]
     contents = file.file.read()
     try:
-        root = ET.fromstring(contents)
-    except ET.ParseError as exc:
+        root = safe_fromstring(contents)
+    except (ET.ParseError, DefusedXmlException) as exc:
         raise HTTPException(status_code=400, detail=f"Invalid OPML: {exc}") from exc
 
     outlines = root.findall(".//outline")
@@ -1574,7 +1580,9 @@ def import_opml(
             category = outline.get("category") or "tech"
 
             # Generate slug using the same logic as CreateSourceRequest
-            payload = CreateSourceRequest(url=xml_url, name=name, category=category, kind="rss_feed")
+            payload = CreateSourceRequest(
+                url=xml_url, name=name, category=category, kind="rss_feed"
+            )
             try:
                 slug = payload.validated_slug(name)
             except HTTPException:
@@ -1593,7 +1601,9 @@ def import_opml(
             try:
                 conn.execute(
                     """
-                    INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)
+                    INSERT INTO sources(
+                        slug, name, url, category, kind, priority, enabled, owner_user_id
+                    )
                     VALUES (%s, %s, %s, %s, %s, 0, TRUE, %s)
                     """,
                     (slug, name, xml_url, category, "rss_feed", uid),

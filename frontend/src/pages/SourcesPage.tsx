@@ -350,25 +350,29 @@ export function SourcesPage() {
           </Button>
           <input
             id="opml-file-input"
+            aria-label="Import OPML"
             type="file"
             accept=".opml,.xml"
             className="hidden"
-            onChange={async (e) => {
+            onChange={(e) => {
               const file = e.target.files?.[0];
               if (!file) return;
+              const input = e.target;
               setIsImporting(true);
               setImportResult(null);
               setImportError(null);
-              try {
-                const result = await importOpml(file);
-                setImportResult(result);
-                void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
-              } catch (err) {
-                setImportError(err instanceof Error ? err.message : 'Import failed');
-              } finally {
-                setIsImporting(false);
-                e.target.value = '';
-              }
+              void (async () => {
+                try {
+                  const result = await importOpml(file);
+                  setImportResult(result);
+                  void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
+                } catch (err) {
+                  setImportError(err instanceof Error ? err.message : 'Import failed');
+                } finally {
+                  setIsImporting(false);
+                  input.value = '';
+                }
+              })();
             }}
           />
           <Button size="sm" variant="outline" onClick={() => void exportOpml()}>
@@ -397,7 +401,7 @@ export function SourcesPage() {
           void qc.invalidateQueries({ queryKey: [SOURCES_KEY] });
         }}
       />
-      {(importResult || importError) && (
+      {(importResult ?? importError) && (
         <section className="border-b border-border bg-muted/25 px-4 py-4 md:px-5">
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -405,18 +409,28 @@ export function SourcesPage() {
               <span>OPML Import Result</span>
             </div>
             {importError && (
-              <p className="text-xs text-[color:var(--err)]">{importError}</p>
+              <p className="text-xs text-[color:var(--err)]">
+                Import failed: <span>{importError}</span>
+              </p>
             )}
             {importResult && (
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>
-                  <span className="text-[color:var(--ok)] font-medium">{importResult.added.length}</span> added
+                  <span className="text-[color:var(--ok)] font-medium">
+                    {importResult.added.length} added
+                  </span>
                   {' · '}
-                  <span className="font-medium">{importResult.skipped.length}</span> skipped
+                  <span className="font-medium">{importResult.skipped.length} skipped</span>
                   {' · '}
-                  <span className={importResult.failed.length ? 'text-[color:var(--err)] font-medium' : 'font-medium'}>
-                    {importResult.failed.length}
-                  </span> failed
+                  <span
+                    className={
+                      importResult.failed.length
+                        ? 'text-[color:var(--err)] font-medium'
+                        : 'font-medium'
+                    }
+                  >
+                    {importResult.failed.length} failed
+                  </span>
                 </p>
                 {importResult.failed.length > 0 && (
                   <ul className="list-disc pl-4 space-y-0.5">

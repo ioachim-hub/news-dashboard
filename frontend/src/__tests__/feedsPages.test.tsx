@@ -5,7 +5,6 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, type ReactElement, type ReactNode } from 'react';
 import type { Source, User } from '../types';
-import type { OpmlImportResult } from '../types';
 import { AuthProvider, useAuth } from '../contexts/auth';
 
 // ── Shared API mock ──────────────────────────────────────────────────────────
@@ -32,7 +31,7 @@ const apiMock = vi.hoisted(() => ({
     added: [],
     skipped: [],
     failed: [],
-  } as OpmlImportResult),
+  }),
 }));
 vi.mock('@/api', () => apiMock);
 vi.mock('../api', () => apiMock);
@@ -346,7 +345,6 @@ describe('SourcesPage', () => {
     withProviders(<SourcesPage />, '/', regularUser);
     await screen.findAllByText('Acme News');
 
-    const importButton = screen.getByRole('button', { name: /import opml/i });
     const fileInput = screen.getByLabelText(/import opml/i).closest('input[type="file"]');
     expect(fileInput).toBeTruthy();
 
@@ -354,9 +352,7 @@ describe('SourcesPage', () => {
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
     await waitFor(() => expect(apiMock.importOpml).toHaveBeenCalledWith(file));
-    await waitFor(() =>
-      expect(screen.getByText(/1 added/)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/1 added/)).toBeTruthy());
   });
 
   it('shows error message if importOpml fails', async () => {
@@ -366,14 +362,11 @@ describe('SourcesPage', () => {
     withProviders(<SourcesPage />, '/', regularUser);
     await screen.findAllByText('Acme News');
 
-    const importButton = screen.getByRole('button', { name: /import opml/i });
     const fileInput = screen.getByLabelText(/import opml/i).closest('input[type="file"]');
     const file = new File(['<opml></opml>'], 'test.opml', { type: 'application/xml' });
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
-    await waitFor(() =>
-      expect(screen.getByText(/Import failed/)).toBeTruthy()
-    );
+    await waitFor(() => expect(screen.getByText(/Import failed/)).toBeTruthy());
     expect(screen.getByText('Invalid OPML file')).toBeTruthy();
   });
 
@@ -381,8 +374,8 @@ describe('SourcesPage', () => {
     apiMock.fetchSources.mockResolvedValue([source()]);
     apiMock.importOpml.mockResolvedValue({
       added: [source({ slug: 'new1' })],
-      skipped: [ { url: 'https://skipped.com', reason: 'duplicate' } ],
-      failed: [ { url: 'https://failed.com', error: 'bad url' } ],
+      skipped: [{ url: 'https://skipped.com', reason: 'duplicate' }],
+      failed: [{ url: 'https://failed.com', error: 'bad url' }],
     });
 
     withProviders(<SourcesPage />, '/', regularUser);

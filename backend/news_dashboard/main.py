@@ -1570,7 +1570,9 @@ def import_opml(
             try:
                 validate_server_fetch_url(xml_url)
             except UnsafeUrlError as exc:
-                logger.warning("Rejected unsafe OPML source URL during import: %s", xml_url, exc_info=exc)
+                logger.warning(
+                    "Rejected unsafe OPML source URL during import: %s", xml_url, exc_info=exc
+                )
                 failed.append({"url": xml_url, "error": "invalid or unsafe feed URL"})
                 continue
 
@@ -1616,7 +1618,7 @@ def import_opml(
                     )
                 row = conn.execute("SELECT * FROM sources WHERE slug = %s", (slug,)).fetchone()
                 added.append(row_to_dict(row))
-            except Exception as exc:
+            except Exception:
                 logger.exception("Failed to import OPML source URL: %s", xml_url)
                 failed.append({"url": xml_url, "error": "failed to import source"})
 

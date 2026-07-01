@@ -1,7 +1,10 @@
 # News Dashboard
 
+[![CI](https://github.com/lihor-hub/news-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/lihor-hub/news-dashboard/actions/workflows/ci.yml)
 [![Coverage Status](https://codecov.io/gh/lihor-hub/news-dashboard/branch/main/graph/badge.svg)](https://app.codecov.io/gh/lihor-hub/news-dashboard)
 [![CodeQL](https://github.com/lihor-hub/news-dashboard/actions/workflows/codeql.yml/badge.svg)](https://github.com/lihor-hub/news-dashboard/actions/workflows/codeql.yml)
+[![Version](https://img.shields.io/badge/version-1.21.0-blue)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/github/license/lihor-hub/news-dashboard)](LICENSE)
 
 Self-hosted technical news inbox for curated feeds, article triage, source
 health, search, briefings, and saved/read history.
@@ -19,6 +22,13 @@ optional OpenAI features for embeddings, Ask AI, and briefings.
 - Optional Keycloak login.
 - Optional OpenAI embeddings, Ask AI, and generated briefings.
 - Docker, Helm, and GitHub Actions deployment support.
+
+## Screenshots
+
+> TODO: these are placeholders generated without a running instance. Replace
+> with real captures of the Today feed and the Ask AI / briefing view.
+
+![Today feed placeholder](docs/assets/screenshot-dashboard.svg)
 
 ## Stack
 

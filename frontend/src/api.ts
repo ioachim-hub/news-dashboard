@@ -26,6 +26,7 @@ import type {
   RecommendationPreferences,
   ReceivedShare,
   ShareDetail,
+  ShareAnnotation,
   ShareMessage,
   SaveOnboardingProfileRequest,
   ShareableUser,
@@ -554,10 +555,30 @@ export async function shareArticle(
   articleId: number,
   toUserId: number,
   note?: string
-): Promise<void> {
-  await requestJson(`/api/articles/${articleId}/share`, {
+): Promise<ReceivedShare> {
+  return requestJson<ReceivedShare>(`/api/articles/${articleId}/share`, {
     method: 'POST',
     body: JSON.stringify({ to_user_id: toUserId, note: note ?? null }),
+  });
+}
+
+export interface CreateShareAnnotationPayload {
+  highlighted_text: string;
+  offset_chars?: number;
+  note?: string | null;
+}
+
+export async function createShareAnnotation(
+  shareId: number,
+  payload: CreateShareAnnotationPayload
+): Promise<ShareAnnotation> {
+  return requestJson<ShareAnnotation>(`/api/shares/${shareId}/annotations`, {
+    method: 'POST',
+    body: JSON.stringify({
+      highlighted_text: payload.highlighted_text,
+      offset_chars: payload.offset_chars ?? 0,
+      note: payload.note ?? null,
+    }),
   });
 }
 

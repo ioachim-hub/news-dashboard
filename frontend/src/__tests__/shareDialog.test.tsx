@@ -40,7 +40,7 @@ describe('ShareDialog', () => {
       { id: 2, username: 'alice', email: 'alice@example.com' },
       { id: 3, username: 'bob', email: null },
     ]);
-    const shareSpy = vi.spyOn(api, 'shareArticle').mockResolvedValue();
+    const shareSpy = vi.spyOn(api, 'shareArticle').mockResolvedValue({ id: 42 } as never);
     const { onOpenChange } = renderDialog();
 
     await userEvent.click(screen.getByText('Send inside the platform'));
@@ -49,6 +49,36 @@ describe('ShareDialog', () => {
     await userEvent.click(screen.getByText('alice'));
     await waitFor(() => expect(shareSpy).toHaveBeenCalledWith(7, 2, ''));
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('attaches selected passage as an annotation after creating the share', async () => {
+    vi.spyOn(api, 'fetchShareableUsers').mockResolvedValue([
+      { id: 2, username: 'alice', email: null },
+    ]);
+    vi.spyOn(api, 'shareArticle').mockResolvedValue({ id: 42 } as never);
+    const annotationSpy = vi.spyOn(api, 'createShareAnnotation').mockResolvedValue({} as never);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ShareDialog
+          open
+          onOpenChange={vi.fn()}
+          article={{ id: 7, title: 'Big News', url: 'https://example.com/x' }}
+          pendingHighlight={{ text: 'Important selected text' }}
+        />
+      </QueryClientProvider>
+    );
+
+    await userEvent.click(screen.getByText('Send inside the platform'));
+    await userEvent.click(await screen.findByText('alice'));
+
+    await waitFor(() =>
+      expect(annotationSpy).toHaveBeenCalledWith(42, {
+        highlighted_text: 'Important selected text',
+        offset_chars: 0,
+        note: null,
+      })
+    );
   });
 
   it('uses the Web Share API for external sharing when available', async () => {

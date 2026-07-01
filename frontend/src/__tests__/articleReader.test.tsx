@@ -679,6 +679,29 @@ describe('ArticlePage — Share button', () => {
 
     expect(clipboardMock).toHaveBeenCalledWith('https://example.com/article');
   });
+
+  it('opens the share dialog with selected article text', async () => {
+    vi.spyOn(api, 'fetchShareableUsers').mockResolvedValue([]);
+    const selection = {
+      toString: () => 'Full article text',
+      rangeCount: 1,
+      getRangeAt: () => ({
+        commonAncestorContainer:
+          document.querySelector('.reader-prose')?.firstChild ?? document.body,
+      }),
+    };
+    vi.spyOn(window, 'getSelection').mockReturnValue(selection as unknown as Selection);
+
+    renderReader();
+    await waitFor(() => screen.getByText('Full article text.'));
+
+    fireEvent.mouseUp(document.querySelector('.reader-prose')!);
+    await userEvent.click(await screen.findByRole('button', { name: /share selected text/i }));
+    await userEvent.click(await screen.findByText('Send inside the platform'));
+
+    expect(await screen.findByText('Selected passage')).toBeTruthy();
+    expect(screen.getByText('Full article text')).toBeTruthy();
+  });
 });
 
 // ─── Triage actions navigate back ────────────────────────────────────────────

@@ -92,7 +92,7 @@ export function LoginPage() {
           <div>
             <h1 className="text-xl font-semibold text-foreground">Sign in</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Private radar dashboard for news.lihor.ro
+              Your private news platform
             </p>
           </div>
         </div>

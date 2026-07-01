@@ -1593,9 +1593,15 @@ def import_opml(
                 continue
 
             # Skip duplicates: slug is globally unique (primary key), so a slug collision
-            # with anyone's source would fail the insert; URL is only checked per-owner.
+            # with anyone's source would fail the insert. For the URL, only match sources
+            # already visible to this user (their own, or a global default) — a different
+            # user's private source sharing the same URL is not a duplicate for this user.
             existing = conn.execute(
-                "SELECT 1 FROM sources WHERE slug = %s OR (url = %s AND owner_user_id = %s)",
+                """
+                SELECT 1 FROM sources
+                WHERE slug = %s
+                   OR (url = %s AND (owner_user_id IS NULL OR owner_user_id = %s))
+                """,
                 (slug, xml_url, uid),
             ).fetchone()
             if existing:

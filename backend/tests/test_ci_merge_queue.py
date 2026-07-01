@@ -21,6 +21,7 @@ import yaml  # type: ignore[import-untyped]
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 CI_FILE = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 
 # Jobs that must run the suite when GitHub builds a merge group.
 _TEST_JOBS = ("test-backend", "test-frontend")
@@ -98,3 +99,26 @@ def test_codecov_upload_specifies_token_and_flags() -> None:
                     f"codecov-action but missing the flags parameter"
                 )
     assert found_codecov, "No codecov/codecov-action steps found in ci.yml"
+
+
+def test_workflows_do_not_queue_pull_requests_for_auto_merge() -> None:
+    """GitHub Actions must not enable auto-merge for pull requests."""
+    forbidden_patterns = (
+        "automerge",
+        "auto-merge",
+        "enable-auto-merge",
+        "gh pr merge --auto",
+    )
+    offenders: list[str] = []
+    for workflow_path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        content = workflow_path.read_text()
+        lower_content = content.lower()
+        offenders.extend(
+            f"{workflow_path.relative_to(REPO_ROOT)} contains {pattern!r}"
+            for pattern in forbidden_patterns
+            if pattern in lower_content
+        )
+
+    assert not offenders, (
+        "GitHub Actions workflows must not queue PRs for auto-merge:\n" + "\n".join(offenders)
+    )

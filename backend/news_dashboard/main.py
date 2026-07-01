@@ -248,6 +248,7 @@ class CreateSourceRequest(BaseModel):
     name: str
     category: str = "tech"
     slug: str | None = None
+    kind: str = "rss_feed"
 
     def validated_slug(self, name: str) -> str:
         """Return a non-empty slug, normalised from name if not provided."""
@@ -1364,9 +1365,9 @@ def create_source(
         conn.execute(
             """
             INSERT INTO sources(slug, name, url, category, kind, priority, enabled, owner_user_id)
-            VALUES (%s, %s, %s, %s, 'rss_feed', 0, TRUE, %s)
+            VALUES (%s, %s, %s, %s, %s, 0, TRUE, %s)
             """,
-            (slug, payload.name.strip(), payload.url, payload.category, uid),
+            (slug, payload.name.strip(), payload.url, payload.category, payload.kind, uid),
         )
         row = conn.execute("SELECT * FROM sources WHERE slug = %s", (slug,)).fetchone()
     return row_to_dict(row)

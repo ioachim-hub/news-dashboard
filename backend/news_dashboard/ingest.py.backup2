@@ -594,14 +594,9 @@ def _ingest_source(
             entries = scrape_source(source)
         elif source.kind == "nitter_feed":
             entries = _fetch_nitter_feed(source)
-        elif source.kind == "reddit_feed":
-            entries = _fetch_reddit_feed(source)
-        elif source.kind == "lobsters_feed":
-            entries = _fetch_lobsters_feed(source)
-        elif source.kind == "mastodon_feed":
-            entries = _fetch_mastodon_feed(source)
         else:
             entries = _fetch_feed_entries(source)
+
         # Apply per-source item limit; tweets are short/frequent so cap lower by default
         noise_rule = NOISE_FILTERS.get(source.slug, {})
         default_max = 15 if source.kind == "nitter_feed" else 50

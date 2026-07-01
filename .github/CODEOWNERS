@@ -1,0 +1,8 @@
+# Default maintainer review for every change.
+* @ioachim-hub
+
+# Area-specific reminders; all currently route to the maintainer account.
+/backend/ @ioachim-hub
+/frontend/ @ioachim-hub
+/helm/ @ioachim-hub
+/.github/ @ioachim-hub

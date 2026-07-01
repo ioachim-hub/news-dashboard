@@ -1,7 +1,7 @@
 {
   "name": "News Dashboard",
   "short_name": "News",
-  "description": "Personal AI-curated news dashboard",
+  "description": "Your private, self-hosted news platform — curated feeds, triage, search, and AI briefings.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#faf8f5",

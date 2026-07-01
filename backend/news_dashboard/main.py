@@ -3,21 +3,26 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_fromstring
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
     FastAPI,
+    File,
     HTTPException,
     Query,
     Request,
     Response,
+    UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -322,6 +327,28 @@ class OTPRequestPayload(BaseModel):
 class OTPLoginPayload(BaseModel):
     email: str
     otp: str
+
+
+# ── OPML helpers ──────────────────────────────────────────────────────────────
+
+
+def _generate_opml(sources: list[dict[str, Any]]) -> str:
+    """Generate an OPML 2.0 XML document from a list of source dicts."""
+    opml = ET.Element("opml", version="2.0")
+    head = ET.SubElement(opml, "head")
+    title_el = ET.SubElement(head, "title")
+    title_el.text = "News Dashboard Subscriptions"
+    body = ET.SubElement(opml, "body")
+    for src in sources:
+        outline = ET.SubElement(body, "outline")
+        outline.set("type", "rss")
+        outline.set("text", src.get("name", ""))
+        outline.set("title", src.get("name", ""))
+        outline.set("xmlUrl", src.get("url", ""))
+        html_url = src.get("html_url") or src.get("site_url")
+        if html_url:
+            outline.set("htmlUrl", html_url)
+    return ET.tostring(opml, encoding="unicode", xml_declaration=True)
 
 
 # ── Public auth routes (no session required) ──────────────────────────────────
@@ -1472,6 +1499,136 @@ def source_cleanup(
         "updated": updated,
         "skipped": [slug for slug in requested_slugs if slug not in updated],
     }
+
+
+@api.get("/api/sources/export.opml")
+def export_opml(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+) -> Response:
+    """Export the user's enabled RSS-type sources as an OPML 2.0 document."""
+    init_db()
+    uid = current_user["id"]
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.*,
+              CASE WHEN s.owner_user_id IS NULL THEN COALESCE(us.enabled, true)
+                   ELSE (s.enabled IS TRUE) END AS user_enabled
+            FROM sources s
+            LEFT JOIN user_sources us ON us.source_slug = s.slug AND us.user_id = %s
+            WHERE (s.owner_user_id IS NULL OR s.owner_user_id = %s)
+              AND s.deleted_at IS NULL
+              AND s.kind = %s
+              AND (CASE WHEN s.owner_user_id IS NULL THEN COALESCE(us.enabled, true)
+                   ELSE (s.enabled IS TRUE) END) = %s
+            ORDER BY s.category, s.priority DESC, s.name
+            """,
+            (uid, uid, "rss_feed", True),
+        ).fetchall()
+        items = []
+        for row in rows:
+            d = row_to_dict(row)
+            d["subscribed"] = bool(d.pop("user_enabled", 1))
+            items.append(d)
+    opml_xml = _generate_opml(items)
+    return Response(
+        content=opml_xml,
+        media_type="text/x-opml",
+        headers={
+            "Content-Disposition": 'attachment; filename="subscriptions.opml"',
+        },
+    )
+
+
+@api.post("/api/sources/import")
+def import_opml(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    file: Annotated[UploadFile, File()],
+) -> dict[str, Any]:
+    """Import RSS feed subscriptions from an OPML file."""
+    init_db()
+    uid = current_user["id"]
+    contents = file.file.read()
+    try:
+        root = safe_fromstring(contents)
+    except (ET.ParseError, DefusedXmlException) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid OPML: {exc}") from exc
+
+    outlines = root.findall(".//outline")
+    added: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    with connect() as conn:
+        for outline in outlines:
+            xml_url = outline.get("xmlUrl")
+            if not xml_url or not xml_url.strip():
+                continue
+            xml_url = xml_url.strip()
+
+            # Validate the URL using the same safety check as create_source
+            try:
+                validate_server_fetch_url(xml_url)
+            except UnsafeUrlError as exc:
+                logger.warning(
+                    "Rejected unsafe OPML source URL during import: %s", xml_url, exc_info=exc
+                )
+                failed.append({"url": xml_url, "error": "invalid or unsafe feed URL"})
+                continue
+
+            name = outline.get("text") or outline.get("title") or xml_url
+            if not name.strip():
+                name = xml_url
+            name = name.strip()
+            category = outline.get("category") or "tech"
+
+            # Generate slug using the same logic as CreateSourceRequest
+            payload = CreateSourceRequest(
+                url=xml_url, name=name, category=category, kind="rss_feed"
+            )
+            try:
+                slug = payload.validated_slug(name)
+            except HTTPException:
+                failed.append({"url": xml_url, "error": "could not derive a valid slug"})
+                continue
+
+            # Skip duplicates: slug is globally unique (primary key), so a slug collision
+            # with anyone's source would fail the insert. For the URL, only match sources
+            # already visible to this user (their own, or a global default) — a different
+            # user's private source sharing the same URL is not a duplicate for this user.
+            existing = conn.execute(
+                """
+                SELECT 1 FROM sources
+                WHERE slug = %s
+                   OR (url = %s AND (owner_user_id IS NULL OR owner_user_id = %s))
+                """,
+                (slug, xml_url, uid),
+            ).fetchone()
+            if existing:
+                skipped.append({"url": xml_url, "reason": "duplicate"})
+                continue
+
+            try:
+                # A savepoint keeps a constraint violation here (e.g. a slug that slipped
+                # past the duplicate check via a race) from aborting the whole request's
+                # transaction and breaking the remaining outlines in this loop.
+                with conn.transaction():
+                    conn.execute(
+                        """
+                        INSERT INTO sources(
+                            slug, name, url, category, kind, priority, enabled, owner_user_id
+                        )
+                        VALUES (%s, %s, %s, %s, %s, 0, TRUE, %s)
+                        """,
+                        (slug, name, xml_url, category, "rss_feed", uid),
+                    )
+                row = conn.execute("SELECT * FROM sources WHERE slug = %s", (slug,)).fetchone()
+                added.append(row_to_dict(row))
+            except Exception:
+                logger.exception("Failed to import OPML source URL: %s", xml_url)
+                failed.append({"url": xml_url, "error": "failed to import source"})
+
+    return {"added": added, "skipped": skipped, "failed": failed}
 
 
 # ── Personalization nudges ────────────────────────────────────────────────────

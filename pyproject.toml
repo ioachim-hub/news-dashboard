@@ -23,6 +23,8 @@ dependencies = [
   "pywebpush>=2.0.0",
   "selenium>=4.0.0",
   "webdriver-manager>=4.0.0",
+  "python-multipart>=0.0.20",
+  "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +39,7 @@ dev = [
   "pre-commit>=4.0.0",
   "testcontainers[postgres]>=4.14.2",
   "pytest-xdist>=3.0.0",
+  "types-defusedxml>=0.7.0",
 ]
 
 [project.scripts]

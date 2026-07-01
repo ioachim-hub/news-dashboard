@@ -5,11 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
-from news_dashboard.auth import create_user
+from news_dashboard.auth import create_user, require_auth
 from news_dashboard.body_fetch import get_article
 from news_dashboard.db import connect
 from news_dashboard.ingest import sync_sources
+from news_dashboard.main import app
 from news_dashboard.shares import (
     ShareError,
     add_annotation,
@@ -176,6 +178,60 @@ def test_shared_article_grants_share_scoped_private_source_access(db: str) -> No
     assert sender_article["id"] == article_id
 
     assert get_shared_article(share_id, charlie) is None
+
+
+def test_shared_article_api_grants_sender_and_recipient_access(db: str) -> None:
+    alice = _make_user(db, "alice")
+    bob = _make_user(db, "bob")
+    article_id = _insert_private_article(db, owner_user_id=alice)
+    share = share_article(article_id=article_id, from_user_id=alice, to_user_id=bob)
+    share_id = int(share["id"])
+
+    client = TestClient(app, raise_server_exceptions=True)
+    for user_id in (alice, bob):
+        app.dependency_overrides[require_auth] = lambda user_id=user_id: {
+            "id": user_id,
+            "username": f"user-{user_id}",
+            "email": None,
+            "is_admin": False,
+        }
+        response = client.get(f"/api/shares/{share_id}/article")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == article_id
+        assert payload["title"] == "Private Share Article"
+
+
+def test_shared_article_api_does_not_weaken_normal_article_visibility(db: str) -> None:
+    alice = _make_user(db, "alice")
+    bob = _make_user(db, "bob")
+    charlie = _make_user(db, "charlie")
+    article_id = _insert_private_article(db, owner_user_id=alice)
+    share = share_article(article_id=article_id, from_user_id=alice, to_user_id=bob)
+    share_id = int(share["id"])
+    client = TestClient(app, raise_server_exceptions=True)
+
+    app.dependency_overrides[require_auth] = lambda: {
+        "id": bob,
+        "username": "bob",
+        "email": None,
+        "is_admin": False,
+    }
+    normal_response = client.get(f"/api/articles/{article_id}")
+    shared_response = client.get(f"/api/shares/{share_id}/article")
+
+    app.dependency_overrides[require_auth] = lambda: {
+        "id": charlie,
+        "username": "charlie",
+        "email": None,
+        "is_admin": False,
+    }
+    unauthorized_shared_response = client.get(f"/api/shares/{share_id}/article")
+
+    assert normal_response.status_code == 404
+    assert shared_response.status_code == 200
+    assert unauthorized_shared_response.status_code == 404
 
 
 def test_shared_article_body_fetch_is_anchored_to_visible_share(db: str) -> None:

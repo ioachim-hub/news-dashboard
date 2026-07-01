@@ -125,6 +125,15 @@ DEFAULT_SOURCES: list[SourceDefinition] = [
         interest_tags=("agents", "model-releases", "evals", "product-news"),
     ),
     SourceDefinition(
+        "deepmind-blog",
+        "Google DeepMind Blog",
+        "https://deepmind.google/blog/",
+        "ai-llm",
+        "scraped_page",
+        85,
+        interest_tags=("agents", "model-releases", "evals", "product-news"),
+    ),
+    SourceDefinition(
         "google-ai-blog",
         "Google AI Blog",
         "https://blog.google/technology/ai/rss/",

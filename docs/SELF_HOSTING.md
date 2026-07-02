@@ -147,6 +147,12 @@ See the [README Configuration section](../README.md#configuration) for the compl
 | `SENTRY_ENVIRONMENT` | Environment tag attached to backend events (e.g. `staging`, `production`). Defaults to `production` when `SENTRY_DSN` is set. |
 | `SENTRY_DSN_FRONTEND` | Frontend error tracking. Served to the SPA via `GET /api/config`; safe to expose since Sentry DSNs are send-only. Off by default. |
 
+### Optional Security
+
+| Variable | Description |
+|----------|-------------|
+| `ENABLE_API_DOCS` | Set to `true` to serve the interactive API docs (`/docs`, `/redoc`, `/openapi.json`). Off by default so a public deployment doesn't leak its full API surface to anonymous visitors; enable it for local development or trusted environments. |
+
 > **Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values.
 
 ### Optional article body extraction (Crawl4AI)
@@ -204,6 +210,7 @@ News Dashboard exposes several health and readiness endpoints for monitoring and
 | `GET /api/scheduler/status` | Admin-only | Scheduler state — whether the in-process scheduler is running, its interval, and configured jobs. |
 | `GET /metrics` | Public (opt-in) | Prometheus exposition format. Only served when `METRICS_ENABLED=true`; returns 404 otherwise. See [Prometheus Metrics](#prometheus-metrics). |
 | `GET /api/config` | Public | Non-sensitive runtime config the SPA needs before login — currently just the frontend Sentry DSN, if configured. See [Error Tracking](#error-tracking). |
+| `GET /docs`, `GET /redoc`, `GET /openapi.json` | Public (opt-in) | Interactive API docs / OpenAPI schema. Only served when `ENABLE_API_DOCS=true`; returns 404 otherwise. |
 
 ### Docker Probe Configuration
 

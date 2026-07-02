@@ -64,37 +64,25 @@ def test_changelog_endpoint_returns_version_and_entries() -> None:
         ## 9.9.9
         - New thing
     """)
-    with (
-        patch("news_dashboard.main._VERSION_FILE") as vf,
-        patch("news_dashboard.main._CHANGELOG_FILE") as cf,
-    ):
-        vf.read_text.return_value = "9.9.9\n"
+    with patch("news_dashboard.main._CHANGELOG_FILE") as cf:
         cf.read_text.return_value = md
         resp = _client().get("/api/changelog")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["version"] == "9.9.9"
+    assert body["version"] == app.version
     assert body["entries"] == [{"version": "9.9.9", "items": ["New thing"]}]
 
 
-def test_changelog_endpoint_version_falls_back_to_unknown() -> None:
-    with (
-        patch("news_dashboard.main._VERSION_FILE") as vf,
-        patch("news_dashboard.main._CHANGELOG_FILE") as cf,
-    ):
-        vf.read_text.side_effect = OSError("missing")
+def test_changelog_endpoint_version_matches_app_version() -> None:
+    with patch("news_dashboard.main._CHANGELOG_FILE") as cf:
         cf.read_text.return_value = "## 1.0.0\n- item\n"
         resp = _client().get("/api/changelog")
     assert resp.status_code == 200
-    assert resp.json()["version"] == "unknown"
+    assert resp.json()["version"] == app.version
 
 
 def test_changelog_endpoint_entries_empty_on_missing_file() -> None:
-    with (
-        patch("news_dashboard.main._VERSION_FILE") as vf,
-        patch("news_dashboard.main._CHANGELOG_FILE") as cf,
-    ):
-        vf.read_text.return_value = "1.0.0\n"
+    with patch("news_dashboard.main._CHANGELOG_FILE") as cf:
         cf.read_text.side_effect = OSError("missing")
         resp = _client().get("/api/changelog")
     assert resp.status_code == 200

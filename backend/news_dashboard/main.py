@@ -118,6 +118,16 @@ logger = logging.getLogger(__name__)
 _SESSION_COOKIE = "nd_session"
 _OAUTH_STATE_COOKIE = "nd_oauth_state"
 
+_VERSION_FILE = Path(__file__).resolve().parents[2] / "VERSION"
+
+
+def _read_app_version() -> str:
+    """Return the running app version from the VERSION file baked into the image."""
+    try:
+        return _VERSION_FILE.read_text().strip()
+    except OSError:
+        return "unknown"
+
 
 class SPAStaticFiles(StaticFiles):
     """Serve index.html for client-side routes while preserving API/static 404s."""
@@ -147,7 +157,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     stop_scheduler()
 
 
-app = FastAPI(title="News Dashboard", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="News Dashboard", version=_read_app_version(), lifespan=lifespan)
 _cors_origins_env = os.getenv("CORS_ORIGINS", "")
 _cors_origins = (
     [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
@@ -607,7 +617,6 @@ def _embed_article_background(article_id: int) -> None:
 
 # ── Public version / changelog endpoints (no auth) ───────────────────────────
 
-_VERSION_FILE = Path(__file__).resolve().parents[2] / "VERSION"
 _CHANGELOG_FILE = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
 
 
@@ -634,22 +643,14 @@ def _parse_changelog() -> list[dict[str, object]]:
 
 @app.get("/api/version")
 def version_endpoint() -> dict[str, str]:
-    """Return the running app version from the VERSION file."""
-    try:
-        version = _VERSION_FILE.read_text().strip()
-    except OSError:
-        version = "unknown"
-    return {"version": version}
+    """Return the running app version, matching the OpenAPI ``info.version``."""
+    return {"version": app.version}
 
 
 @app.get("/api/changelog")
 def changelog_endpoint() -> dict[str, object]:
     """Return changelog entries parsed from CHANGELOG.md."""
-    try:
-        version = _VERSION_FILE.read_text().strip()
-    except OSError:
-        version = "unknown"
-    return {"version": version, "entries": _parse_changelog()}
+    return {"version": app.version, "entries": _parse_changelog()}
 
 
 # ── Authenticated API router ─────────────────────────────────────────────────

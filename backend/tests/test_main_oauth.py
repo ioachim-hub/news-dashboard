@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from news_dashboard import main as main_module
 from news_dashboard.main import app
 
 
@@ -119,17 +120,26 @@ def test_auth_config_returns_metadata() -> None:
 # ── /api/version ──────────────────────────────────────────────────────────────
 
 
-def test_version_endpoint_reads_version_file() -> None:
+def test_read_app_version_reads_version_file() -> None:
     with patch("news_dashboard.main._VERSION_FILE") as vf:
         vf.read_text.return_value = "9.9.9\n"
-        resp = _client().get("/api/version")
-    assert resp.status_code == 200
-    assert resp.json() == {"version": "9.9.9"}
+        assert main_module._read_app_version() == "9.9.9"
 
 
-def test_version_endpoint_falls_back_to_unknown_on_oserror() -> None:
+def test_read_app_version_falls_back_to_unknown_on_oserror() -> None:
     with patch("news_dashboard.main._VERSION_FILE") as vf:
         vf.read_text.side_effect = OSError("missing")
-        resp = _client().get("/api/version")
+        assert main_module._read_app_version() == "unknown"
+
+
+def test_version_endpoint_returns_the_running_app_version() -> None:
+    resp = _client().get("/api/version")
     assert resp.status_code == 200
-    assert resp.json() == {"version": "unknown"}
+    assert resp.json() == {"version": app.version}
+
+
+def test_app_version_matches_version_endpoint_and_openapi_info() -> None:
+    """The FastAPI app version, /api/version, and OpenAPI info.version must agree."""
+    resp = _client().get("/api/version")
+    assert resp.json()["version"] == app.version
+    assert app.openapi()["info"]["version"] == app.version

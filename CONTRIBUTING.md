@@ -14,6 +14,23 @@ By participating in this project, you agree to abide by our
 - **[MAINTAINERS.md](MAINTAINERS.md)** — who maintains this project and how to become one.
 - **[ROADMAP.md](ROADMAP.md)** — near-term direction and how to propose roadmap items.
 
+## Where to start
+
+Not sure which part of the codebase to touch? Here is a quick map:
+
+| I want to… | Where to look |
+|---|---|
+| Add a new feed source or scraper | `backend/news_dashboard/ingest/` |
+| Work on the UI / React components | `frontend/src/` |
+| Add or improve translations (i18n) | `frontend/src/locales/` |
+| Write or fix backend tests | `backend/tests/` |
+| Improve Helm or Docker packaging | `helm/`, `Dockerfile`, `docker-compose.yml` |
+| Fix or expand the documentation | `website/docs/` |
+| Improve CI or GitHub Actions | `.github/workflows/` |
+| Work on the Android or desktop app | `android/`, `desktop/` |
+
+For deeper orientation, see the [Architecture Decision Records](docs/adr/) and the [Project Layout](README.md#project-layout) in the README.
+
 ## Prerequisites
 
 - Python 3.14+

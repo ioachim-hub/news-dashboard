@@ -1,5 +1,13 @@
 {
   "name": "news-dashboard",
+  "version": "0.0.0",
+  "description": "Self-hosted technical news inbox with AI briefings, source health, and article triage",
+  "keywords": ["news", "rss", "self-hosted", "ai", "briefings", "fastapi", "react", "postgresql"],
+  "homepage": "https://docs.lihor.ro",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lihor-hub/news-dashboard.git"
+  },
   "private": true,
   "scripts": {
     "dev": "vite --host 0.0.0.0",

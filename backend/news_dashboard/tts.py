@@ -123,7 +123,9 @@ def generate_audio(
 
 def _podcast_audio_path(briefing_id: int, data_dir: Path | None = None) -> Path:
     base = data_dir if data_dir is not None else _data_dir()
-    return base / "audio" / f"podcast-{briefing_id}.mp3"
+    # int() coerces briefing_id to a plain digit string, so it cannot carry
+    # path-traversal or separator characters into the constructed path.
+    return base / "audio" / f"podcast-{int(briefing_id)}.mp3"
 
 
 def generate_podcast_audio(

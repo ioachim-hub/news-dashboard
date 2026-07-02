@@ -55,6 +55,13 @@ dev = [
 news-dashboard = "news_dashboard.cli:app"
 news-dashboard-migrate = "news_dashboard.migrate:app"
 
+[project.urls]
+Homepage = "https://docs.lihor.ro"
+Repository = "https://github.com/lihor-hub/news-dashboard"
+Documentation = "https://docs.lihor.ro"
+Changelog = "https://github.com/lihor-hub/news-dashboard/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/lihor-hub/news-dashboard/issues"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

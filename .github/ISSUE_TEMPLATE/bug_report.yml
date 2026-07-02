@@ -42,6 +42,22 @@ body:
         - Other
     validations:
       required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Find this at `/api/version` or in the Settings page.
+      placeholder: "e.g. v1.21.0"
+    validations:
+      required: true
+  - type: input
+    id: browser_os
+    attributes:
+      label: Browser and OS (for UI bugs)
+      description: Leave blank for backend-only issues.
+      placeholder: "e.g. Chrome 125 on macOS 14"
+    validations:
+      required: false
   - type: textarea
     id: logs
     attributes:

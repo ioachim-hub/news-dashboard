@@ -300,6 +300,11 @@ Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 New to the project? Browse [good first issues](https://github.com/lihor-hub/news-dashboard/issues?q=is%3Aopen+label%3A%22good+first+issue%22) — beginner-friendly tasks with clear scope.
 
+Have a question or an open-ended feature idea? Use
+[GitHub Discussions](https://github.com/lihor-hub/news-dashboard/discussions) instead of
+opening an issue — see [SUPPORT.md](SUPPORT.md) for details. Issues are reserved for
+actionable, specified bugs and feature requests.
+
 Keep runtime database code PostgreSQL-specific: psycopg parameters, PostgreSQL
 SQL, and existing database helpers. Do not add SQLite runtime fallbacks or
 generic multi-database layers.

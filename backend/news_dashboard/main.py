@@ -74,6 +74,7 @@ from news_dashboard.briefings import (
     list_briefings,
 )
 from news_dashboard.db import connect, describe_database, init_db, row_to_dict
+from news_dashboard.error_tracking import frontend_error_tracking_dsn, init_error_tracking
 from news_dashboard.ingest import (
     get_user_summary,
     ingest_all,
@@ -146,6 +147,7 @@ class SPAStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    init_error_tracking()
     init_auth()
     sync_sources()
     # Seed demo data when DEMO_MODE is enabled.
@@ -473,6 +475,16 @@ def prometheus_metrics() -> Response:
     if not metrics_enabled():
         raise HTTPException(status_code=404, detail="not found")
     return Response(content=render_metrics(), media_type=CONTENT_TYPE_LATEST)
+
+
+@public_router.get("/api/config")
+def public_config() -> dict[str, Any]:
+    """Public, non-sensitive runtime config the SPA needs before login.
+
+    ``sentry_dsn`` is a Sentry/GlitchTip DSN, which is designed to be
+    exposed to clients — it only lets a client *send* events, not read data.
+    """
+    return {"sentry_dsn": frontend_error_tracking_dsn()}
 
 
 @public_router.get("/api/auth/config")

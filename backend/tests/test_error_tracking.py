@@ -1,0 +1,108 @@
+"""Tests for the optional Sentry/GlitchTip error tracking gate."""
+
+from __future__ import annotations
+
+from typing import Any, cast
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from sentry_sdk.types import Event
+
+from news_dashboard.error_tracking import (
+    error_tracking_enabled,
+    frontend_error_tracking_dsn,
+    init_error_tracking,
+)
+from news_dashboard.main import app
+
+
+def _client() -> TestClient:
+    app.dependency_overrides.clear()
+    return TestClient(app, follow_redirects=False)
+
+
+@pytest.mark.smoke
+def test_error_tracking_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    assert error_tracking_enabled() is False
+
+
+@pytest.mark.smoke
+def test_error_tracking_enabled_when_dsn_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTRY_DSN", "https://example@o0.ingest.sentry.io/0")
+    assert error_tracking_enabled() is True
+
+
+@pytest.mark.smoke
+def test_init_does_not_call_sentry_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    mock_sentry_sdk = MagicMock()
+    with patch.dict("sys.modules", {"sentry_sdk": mock_sentry_sdk}):
+        init_error_tracking()
+    mock_sentry_sdk.init.assert_not_called()
+
+
+@pytest.mark.smoke
+def test_init_calls_sentry_when_dsn_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    dsn = "https://example@o0.ingest.sentry.io/0"
+    monkeypatch.setenv("SENTRY_DSN", dsn)
+    mock_sentry_sdk = MagicMock()
+    with patch.dict("sys.modules", {"sentry_sdk": mock_sentry_sdk}):
+        init_error_tracking()
+    mock_sentry_sdk.init.assert_called_once()
+    _, kwargs = mock_sentry_sdk.init.call_args
+    assert kwargs["dsn"] == dsn
+    assert kwargs["send_default_pii"] is False
+
+
+@pytest.mark.smoke
+def test_frontend_dsn_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTRY_DSN_FRONTEND", raising=False)
+    assert frontend_error_tracking_dsn() is None
+
+
+@pytest.mark.smoke
+def test_frontend_dsn_returned_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTRY_DSN_FRONTEND", "https://example@o0.ingest.sentry.io/1")
+    assert frontend_error_tracking_dsn() == "https://example@o0.ingest.sentry.io/1"
+
+
+@pytest.mark.smoke
+def test_scrub_pii_strips_cookies_headers_and_user() -> None:
+    from news_dashboard.error_tracking import _scrub_pii
+
+    event = {
+        "request": {
+            "cookies": {"nd_session": "secret"},
+            "headers": {
+                "Authorization": "Bearer x",
+                "Cookie": "nd_session=secret",
+                "Accept": "*/*",
+            },
+        },
+        "user": {"email": "a@b.com"},
+    }
+    scrubbed = cast("dict[str, Any]", _scrub_pii(cast("Event", event), cast("Any", {})))
+    assert scrubbed is not None
+    assert "cookies" not in scrubbed["request"]
+    assert "Authorization" not in scrubbed["request"]["headers"]
+    assert "Cookie" not in scrubbed["request"]["headers"]
+    assert scrubbed["request"]["headers"]["Accept"] == "*/*"
+    assert "user" not in scrubbed
+
+
+@pytest.mark.smoke
+def test_public_config_omits_dsn_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTRY_DSN_FRONTEND", raising=False)
+    resp = _client().get("/api/config")
+    assert resp.status_code == 200
+    assert resp.json() == {"sentry_dsn": None}
+
+
+@pytest.mark.smoke
+def test_public_config_returns_frontend_dsn_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTRY_DSN_FRONTEND", "https://example@o0.ingest.sentry.io/2")
+    resp = _client().get("/api/config")
+    assert resp.status_code == 200
+    assert resp.json() == {"sentry_dsn": "https://example@o0.ingest.sentry.io/2"}

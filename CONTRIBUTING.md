@@ -9,6 +9,7 @@ By participating in this project, you agree to abide by our
 
 - **[Good first issues](https://github.com/lihor-hub/news-dashboard/issues?q=is%3Aopen+label%3A%22good+first+issue%22)** — beginner-friendly tasks you can pick up cold.
 - **[Help wanted](https://github.com/lihor-hub/news-dashboard/issues?q=is%3Aopen+label%3A%22help+wanted%22)** — issues the maintainers would love help with.
+- **[docs.lihor.ro](https://docs.lihor.ro)** — the published documentation site (source in `website/`, preview with `cd website && npm install && npm run start`).
 
 ## Prerequisites
 

@@ -247,6 +247,8 @@ To begin using News Dashboard as a reader, see the
 
 ## Documentation
 
+The full documentation site is published at **[docs.lihor.ro](https://docs.lihor.ro)**.
+
 For end-user documentation, see the [User Guide](docs/user-guide/README.md) which covers:
 - Concepts and terminology
 - The Today Feed and triage workflow
@@ -257,6 +259,8 @@ For end-user documentation, see the [User Guide](docs/user-guide/README.md) whic
 
 For technical documentation (architecture, deployment, authentication), see the
 [docs index](docs/README.md).
+
+To preview the docs site locally: `cd website && npm install && npm run start`.
 
 ## Deployment
 

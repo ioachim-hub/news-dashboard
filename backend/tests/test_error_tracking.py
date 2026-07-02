@@ -47,13 +47,17 @@ def test_init_does_not_call_sentry_when_unset(monkeypatch: pytest.MonkeyPatch) -
 def test_init_calls_sentry_when_dsn_set(monkeypatch: pytest.MonkeyPatch) -> None:
     dsn = "https://example@o0.ingest.sentry.io/0"
     monkeypatch.setenv("SENTRY_DSN", dsn)
+    monkeypatch.setenv("SENTRY_ENVIRONMENT", "production")
+    monkeypatch.setenv("SENTRY_RELEASE", "news-dashboard@1.2.3")
     mock_sentry_sdk = MagicMock()
     with patch.dict("sys.modules", {"sentry_sdk": mock_sentry_sdk}):
         init_error_tracking()
     mock_sentry_sdk.init.assert_called_once()
     _, kwargs = mock_sentry_sdk.init.call_args
     assert kwargs["dsn"] == dsn
-    assert kwargs["send_default_pii"] is False
+    assert kwargs["environment"] == "production"
+    assert kwargs["release"] == "news-dashboard@1.2.3"
+    assert kwargs["send_default_pii"] is True
 
 
 @pytest.mark.smoke

@@ -2,9 +2,7 @@
 
 Gated by the ``SENTRY_DSN`` env var (backend) and ``SENTRY_DSN_FRONTEND``
 (exposed to the SPA via ``GET /api/config``). Both are off by default: when
-unset, no SDK is initialized and no telemetry leaves the process. PII is kept
-out via ``send_default_pii=False`` plus a ``before_send`` hook that strips
-cookies/auth headers and any user block before an event would be sent.
+unset, no SDK is initialized and no telemetry leaves the process.
 """
 
 from __future__ import annotations
@@ -50,8 +48,8 @@ def init_error_tracking() -> None:
     sentry_sdk.init(
         dsn=os.environ["SENTRY_DSN"],
         environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
-        send_default_pii=False,
-        before_send=_scrub_pii,
+        release=os.getenv("SENTRY_RELEASE") or None,
+        send_default_pii=True,
     )
 
 

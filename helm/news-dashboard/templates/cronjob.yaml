@@ -91,6 +91,7 @@ spec:
   {{- end }}
 {{- end }}
 {{ include "news-dashboard.aiEnv" . | indent 16 }}
+{{ include "news-dashboard.sentryEnv" . | indent 16 }}
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

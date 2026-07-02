@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Loader2, ScatterChart, Type } from 'lucide-react';
-import { fetchAiEmbeddingMap, fetchAiWordCloud } from '@/api';
+import { AlertCircle, Loader2, Network, ScatterChart, Type } from 'lucide-react';
+import { fetchAiEmbeddingMap, fetchAiWordCloud, fetchKnowledgeGraph } from '@/api';
 import { WordCloudChart } from '@/components/aiStats/WordCloudChart';
 import { EmbeddingMapChart } from '@/components/aiStats/EmbeddingMapChart';
+import { KnowledgeGraph } from '@/components/aiStats/KnowledgeGraph';
 import { cn } from '@/lib/utils';
 
 const RANGES = [7, 14, 30] as const;
@@ -50,6 +51,12 @@ export function AiStatsPage() {
   const embeddingMap = useQuery({
     queryKey: ['ai-embedding-map', days],
     queryFn: () => fetchAiEmbeddingMap(days),
+    staleTime: STALE_TIME,
+  });
+
+  const knowledgeGraph = useQuery({
+    queryKey: ['ai-knowledge-graph', days],
+    queryFn: () => fetchKnowledgeGraph(days),
     staleTime: STALE_TIME,
   });
 
@@ -137,6 +144,27 @@ export function AiStatsPage() {
               clusters={embeddingMap.data.clusters}
             />
           ))}
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Network className="size-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Knowledge Graph</h2>
+          {knowledgeGraph.data && knowledgeGraph.data.pending_count > 0 && (
+            <span className="text-[11px] text-muted-foreground">
+              extraction pending for {knowledgeGraph.data.pending_count} article
+              {knowledgeGraph.data.pending_count !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        {knowledgeGraph.isLoading && <SectionLoading />}
+        {knowledgeGraph.isError && (
+          <SectionError
+            message="Failed to load knowledge graph."
+            onRetry={() => void knowledgeGraph.refetch()}
+          />
+        )}
+        {knowledgeGraph.data && <KnowledgeGraph graph={knowledgeGraph.data} />}
       </section>
     </div>
   );

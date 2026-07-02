@@ -131,6 +131,31 @@ def test_helm_template_ingest_cronjob_receives_ai_env() -> None:
 
 
 @pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")
+def test_helm_template_app_and_ingest_receive_sentry_env() -> None:
+    output = _render_chart(
+        "app.sentry.existingSecret=sentry-credentials",
+        "app.sentry.dsnKey=CUSTOM_SENTRY_DSN",
+        "app.sentry.environment=production",
+        "app.sentry.release=news-dashboard@abc123",
+    )
+    deployment_env = _env_block(_manifest_for_kind(output, "Deployment"))
+    cronjob_env = _env_block(_manifest_for_kind(output, "CronJob"))
+
+    for name in ("SENTRY_DSN", "SENTRY_ENVIRONMENT", "SENTRY_RELEASE"):
+        assert _env_entry(cronjob_env, name) == _env_entry(deployment_env, name)
+
+    sentry_dsn = _env_entry(deployment_env, "SENTRY_DSN")
+    assert 'name: "sentry-credentials"' in sentry_dsn
+    assert 'key: "CUSTOM_SENTRY_DSN"' in sentry_dsn
+    assert _env_entry(deployment_env, "SENTRY_ENVIRONMENT") == (
+        '- name: SENTRY_ENVIRONMENT\n  value: "production"'
+    )
+    assert _env_entry(deployment_env, "SENTRY_RELEASE") == (
+        '- name: SENTRY_RELEASE\n  value: "news-dashboard@abc123"'
+    )
+
+
+@pytest.mark.skipif(HELM_BIN is None, reason="helm binary not found on path")
 def test_helm_template_external_postgres() -> None:
     output = _render_chart(
         "postgresql.enabled=false",

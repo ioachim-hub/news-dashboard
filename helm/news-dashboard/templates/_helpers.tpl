@@ -48,3 +48,22 @@
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- define "news-dashboard.sentryEnv" -}}
+{{- if .Values.app.sentry.existingSecret }}
+- name: SENTRY_DSN
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.app.sentry.existingSecret | quote }}
+      key: {{ .Values.app.sentry.dsnKey | default "SENTRY_DSN" | quote }}
+      optional: true
+{{- end }}
+{{- if .Values.app.sentry.environment }}
+- name: SENTRY_ENVIRONMENT
+  value: {{ .Values.app.sentry.environment | quote }}
+{{- end }}
+{{- if .Values.app.sentry.release }}
+- name: SENTRY_RELEASE
+  value: {{ .Values.app.sentry.release | quote }}
+{{- end }}
+{{- end -}}

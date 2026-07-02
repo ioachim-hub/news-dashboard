@@ -96,6 +96,14 @@ app:
     vapidPrivateKeyKey: VAPID_PRIVATE_KEY
     # VAPID claims email address. Omit or leave empty to default safely.
     email: ""
+  sentry:
+    # Optional: pre-existing Secret with SENTRY_DSN.
+    existingSecret: ""
+    dsnKey: SENTRY_DSN
+    # Sentry environment tag. Leave empty to let the SDK default to production.
+    environment: ""
+    # Optional release identifier, usually set by CI to the deployed commit SHA.
+    release: ""
 
 ingestCronJob:
   enabled: true

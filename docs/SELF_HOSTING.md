@@ -121,6 +121,8 @@ See the [README Configuration section](../README.md#configuration) for the compl
 | Variable | Description |
 |----------|-------------|
 | `METRICS_ENABLED` | Set to `true` to expose the Prometheus `/metrics` endpoint. Off by default. |
+| `SENTRY_DSN` | Backend error tracking. Point at a Sentry or GlitchTip-compatible DSN to capture unhandled exceptions. Off by default — no SDK initializes and no network calls are made when unset. |
+| `SENTRY_DSN_FRONTEND` | Frontend error tracking. Served to the SPA via `GET /api/config`; safe to expose since Sentry DSNs are send-only. Off by default. |
 
 > **Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values.
 
@@ -178,6 +180,7 @@ News Dashboard exposes several health and readiness endpoints for monitoring and
 | `GET /api/sources/health` | Authenticated | Per-source health status for the current user — shows last-checked time, last error, and fetch counts for each source. |
 | `GET /api/scheduler/status` | Admin-only | Scheduler state — whether the in-process scheduler is running, its interval, and configured jobs. |
 | `GET /metrics` | Public (opt-in) | Prometheus exposition format. Only served when `METRICS_ENABLED=true`; returns 404 otherwise. See [Prometheus Metrics](#prometheus-metrics). |
+| `GET /api/config` | Public | Non-sensitive runtime config the SPA needs before login — currently just the frontend Sentry DSN, if configured. See [Error Tracking](#error-tracking). |
 
 ### Docker Probe Configuration
 
@@ -268,6 +271,23 @@ scrape_configs:
     static_configs:
       - targets: ["news-dashboard:8080"]
 ```
+
+### Error Tracking
+
+Optional, opt-in error tracking against a Sentry or GlitchTip-compatible
+DSN — pick a self-hosted GlitchTip instance to keep everything in-house, or
+a Sentry SaaS project if you prefer.
+
+- `SENTRY_DSN` enables backend exception capture. Unset (default): no SDK
+  initializes and no network calls are made.
+- `SENTRY_DSN_FRONTEND` enables frontend error capture. It's served to the
+  SPA via the public `GET /api/config` endpoint — this is safe because a
+  Sentry DSN only lets a client *send* events, not read any data.
+
+Both are off independently, so you can enable backend-only, frontend-only,
+or both. PII is scrubbed before events are sent: `send_default_pii` is
+disabled on both SDKs, and the backend additionally strips cookies and
+`Authorization`/`Cookie` headers via a `before_send` hook.
 
 ## Upgrading
 

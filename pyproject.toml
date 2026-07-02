@@ -26,6 +26,7 @@ dependencies = [
   "python-multipart>=0.0.20",
   "defusedxml>=0.7.1",
   "prometheus-client>=0.21.0",
+  "sentry-sdk>=2.0.0",
 ]
 
 [project.optional-dependencies]

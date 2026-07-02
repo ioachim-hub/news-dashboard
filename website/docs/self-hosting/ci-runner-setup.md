@@ -1,3 +1,8 @@
+---
+title: CI Runner Setup
+sidebar_position: 2
+---
+
 # Self-hosted GitHub Actions runner setup
 
 The CD deploy job runs on a self-hosted GitHub Actions runner installed directly
@@ -157,4 +162,4 @@ The Helm release name `news-dashboard` + chart name `news-dashboard` produces
 
 Production HTTPS routing on the runner's host is documented against the single
 source-of-truth Caddy config at `deploy/Caddyfile` — see
-[docs/CADDY_HTTPS_SETUP.md](CADDY_HTTPS_SETUP.md).
+[HTTPS with Caddy](/docs/configuration/https-caddy).

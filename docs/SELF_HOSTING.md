@@ -122,6 +122,7 @@ See the [README Configuration section](../README.md#configuration) for the compl
 |----------|-------------|
 | `METRICS_ENABLED` | Set to `true` to expose the Prometheus `/metrics` endpoint. Off by default. |
 | `SENTRY_DSN` | Backend error tracking. Point at a Sentry or GlitchTip-compatible DSN to capture unhandled exceptions. Off by default — no SDK initializes and no network calls are made when unset. |
+| `SENTRY_ENVIRONMENT` | Environment tag attached to backend events (e.g. `staging`, `production`). Defaults to `production` when `SENTRY_DSN` is set. |
 | `SENTRY_DSN_FRONTEND` | Frontend error tracking. Served to the SPA via `GET /api/config`; safe to expose since Sentry DSNs are send-only. Off by default. |
 
 > **Important**: Never commit secrets to version control. Use environment variables or a `.env` file (not committed to Git) to manage sensitive values.

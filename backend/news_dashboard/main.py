@@ -175,6 +175,23 @@ app.add_middleware(
     allow_credentials=True,
 )
 
+# ── API docs exposure toggle ────────────────────────────────────────────────
+
+
+@app.middleware("http")
+async def gate_api_docs(request: Request, call_next: Any) -> Any:
+    """Hide the interactive API docs unless explicitly enabled.
+
+    ``/docs``, ``/redoc``, and ``/openapi.json`` expose the full API surface,
+    so they're 404'd for anonymous visitors unless ENABLE_API_DOCS is set.
+    """
+    from news_dashboard.api_docs import DOCS_PATHS, api_docs_enabled
+
+    if request.url.path in DOCS_PATHS and not api_docs_enabled():
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return await call_next(request)
+
+
 # ── Optional Prometheus metrics ─────────────────────────────────────────────
 
 

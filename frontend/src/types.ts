@@ -517,6 +517,37 @@ export interface EmbeddingMapResponse {
   days: number;
 }
 
+export type EntityType = 'person' | 'org' | 'product' | 'place';
+
+export interface KnowledgeGraphNode {
+  id: string;
+  name: string;
+  type: EntityType;
+  count: number;
+  article_ids: number[];
+}
+
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+  article_ids: number[];
+}
+
+export interface KnowledgeGraphArticle {
+  id: number;
+  title: string;
+}
+
+export interface KnowledgeGraphResponse {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  articles: KnowledgeGraphArticle[];
+  article_count: number;
+  pending_count: number;
+  days: number;
+}
+
 export interface OnboardingInterest {
   id: string;
   label: string;

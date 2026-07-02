@@ -144,3 +144,13 @@ def test_init_db_postgres_caches_successful_schema_runs(tmp_path: Any) -> None:
         init_db(token)
 
     assert len(connect_calls) == len(fake_schema)
+
+
+def test_postgres_schema_adds_entities_column() -> None:
+    """The articles.entities cache column ships as an idempotent statement."""
+    from news_dashboard.db import POSTGRES_SCHEMA
+
+    assert any(
+        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS entities TEXT" in stmt
+        for stmt in POSTGRES_SCHEMA
+    )

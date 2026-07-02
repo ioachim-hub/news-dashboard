@@ -230,6 +230,22 @@ def _run_digest() -> tuple[str, str | None]:
         return "failure", str(exc)[:500]
 
 
+def _run_entity_extraction() -> tuple[str, str | None]:
+    from news_dashboard.entities import EntitiesNotConfiguredError, extract_missing_entities
+
+    logger.info("Extracting entities for recent articles…")
+    try:
+        extracted = extract_missing_entities()
+    except EntitiesNotConfiguredError:
+        logger.info("Entity extraction skipped (no AI key configured).")
+        return "skipped", "no AI key configured"
+    except Exception as exc:
+        logger.exception("Entity extraction failed")
+        return "failure", str(exc)[:500]
+    logger.info("Entity extraction done: %d article(s).", extracted)
+    return "success", f"extracted {extracted} article(s)"
+
+
 def _run_and_record(
     job_name: str,
     fn: Callable[[], tuple[str, str | None] | None],
@@ -282,6 +298,10 @@ def _job_briefing() -> None:
 
 def _job_per_user_briefings() -> None:
     _run_and_record("per_user_briefings", _run_per_user_briefings)
+
+
+def _job_entity_extraction() -> None:
+    _run_and_record("entity_extraction", _run_entity_extraction)
 
 
 def _parse_cron_hm(cron: str, default_minute: str, default_hour: str) -> tuple[str, str]:
@@ -392,6 +412,14 @@ def start_scheduler() -> None:
         trigger="interval",
         minutes=1,
         id="per_user_briefings",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        _job_entity_extraction,
+        trigger="interval",
+        minutes=int(os.getenv("ENTITY_EXTRACTION_INTERVAL_MINUTES", "30")),
+        id="entity_extraction",
         replace_existing=True,
     )
 

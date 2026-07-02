@@ -971,3 +971,62 @@ def test_per_user_briefings_null_timezone_falls_back_to_utc() -> None:
         _run_per_user_briefings()
 
     mock_generate.assert_called_once_with(user_id=5)
+
+
+# ── entity extraction job ─────────────────────────────────────────────────────
+
+
+def test_start_scheduler_registers_entity_extraction_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_sched = _start_with_env(monkeypatch)
+    jobs = {c.kwargs.get("id"): c.kwargs for c in mock_sched.add_job.call_args_list}
+    assert "entity_extraction" in jobs
+    assert jobs["entity_extraction"]["trigger"] == "interval"
+    assert jobs["entity_extraction"]["minutes"] == 30
+
+
+def test_start_scheduler_entity_extraction_interval_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENTITY_EXTRACTION_INTERVAL_MINUTES", "5")
+    mock_sched = _start_with_env(monkeypatch)
+    jobs = {c.kwargs.get("id"): c.kwargs for c in mock_sched.add_job.call_args_list}
+    assert jobs["entity_extraction"]["minutes"] == 5
+
+
+def test_run_entity_extraction_reports_count() -> None:
+    from news_dashboard.scheduler import _run_entity_extraction
+
+    with patch("news_dashboard.entities.extract_missing_entities", return_value=3) as mock_extract:
+        status, message = _run_entity_extraction()
+
+    mock_extract.assert_called_once()
+    assert status == "success"
+    assert "3" in (message or "")
+
+
+def test_run_entity_extraction_skips_when_not_configured() -> None:
+    from news_dashboard.entities import EntitiesNotConfiguredError
+    from news_dashboard.scheduler import _run_entity_extraction
+
+    with patch(
+        "news_dashboard.entities.extract_missing_entities",
+        side_effect=EntitiesNotConfiguredError("no key"),
+    ):
+        status, _message = _run_entity_extraction()
+
+    assert status == "skipped"
+
+
+def test_run_entity_extraction_reports_failure() -> None:
+    from news_dashboard.scheduler import _run_entity_extraction
+
+    with patch(
+        "news_dashboard.entities.extract_missing_entities",
+        side_effect=RuntimeError("boom"),
+    ):
+        status, message = _run_entity_extraction()
+
+    assert status == "failure"
+    assert "boom" in (message or "")

@@ -45,6 +45,7 @@ import type {
   TopicMapResponse,
   WordCloudResponse,
   EmbeddingMapResponse,
+  KnowledgeGraphResponse,
   User,
 } from './types';
 
@@ -726,6 +727,10 @@ export async function fetchAiWordCloud(days = 7): Promise<WordCloudResponse> {
 
 export async function fetchAiEmbeddingMap(days = 7): Promise<EmbeddingMapResponse> {
   return requestJson<EmbeddingMapResponse>(`/api/ai-stats/embedding-map?days=${days}`);
+}
+
+export async function fetchKnowledgeGraph(days = 7): Promise<KnowledgeGraphResponse> {
+  return requestJson<KnowledgeGraphResponse>(`/api/ai-stats/knowledge-graph?days=${days}`);
 }
 
 export async function fetchOnboardingStatus(): Promise<OnboardingStatus> {

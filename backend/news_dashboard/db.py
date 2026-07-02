@@ -146,6 +146,7 @@ POSTGRES_SCHEMA = [
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS body TEXT",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS body_status TEXT NOT NULL DEFAULT 'missing'",
     "ALTER TABLE articles ADD COLUMN IF NOT EXISTS insights TEXT",
+    "ALTER TABLE articles ADD COLUMN IF NOT EXISTS entities TEXT",
     """
     ALTER TABLE articles ADD COLUMN IF NOT EXISTS search_vector tsvector
       GENERATED ALWAYS AS (

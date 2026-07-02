@@ -10,6 +10,7 @@ import type { EmbeddingMapResponse, WordCloudResponse } from '../types';
 vi.mock('../api', () => ({
   fetchAiWordCloud: vi.fn(),
   fetchAiEmbeddingMap: vi.fn(),
+  fetchKnowledgeGraph: vi.fn(),
 }));
 
 const mockedApi = vi.mocked(api, true);
@@ -52,6 +53,14 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockedApi.fetchAiWordCloud.mockResolvedValue(WORD_CLOUD);
   mockedApi.fetchAiEmbeddingMap.mockResolvedValue(EMBEDDING_MAP);
+  mockedApi.fetchKnowledgeGraph.mockResolvedValue({
+    nodes: [],
+    edges: [],
+    articles: [],
+    article_count: 0,
+    pending_count: 0,
+    days: 7,
+  });
 });
 
 describe('AiStatsPage', () => {

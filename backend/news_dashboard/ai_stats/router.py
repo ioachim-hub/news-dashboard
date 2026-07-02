@@ -31,3 +31,13 @@ def embedding_map_endpoint(
     days: Annotated[int, Query(ge=1, le=30)] = 7,
 ) -> dict[str, Any]:
     return service.embedding_map(user_id=current_user["id"], days=days)
+
+
+@router.get("/api/ai-stats/knowledge-graph")
+def knowledge_graph_endpoint(
+    current_user: Annotated[dict[str, Any], Depends(require_auth)],
+    days: Annotated[int, Query(ge=1, le=30)] = 7,
+) -> dict[str, Any]:
+    from news_dashboard import entities
+
+    return entities.knowledge_graph(user_id=current_user["id"], days=days)

@@ -70,3 +70,35 @@ def test_embedding_map_days_out_of_range_is_422() -> None:
     client = _client()
     assert client.get("/api/ai-stats/embedding-map?days=0").status_code == 422
     assert client.get("/api/ai-stats/embedding-map?days=31").status_code == 422
+
+
+def test_knowledge_graph_route_is_registered() -> None:
+    paths = app.openapi()["paths"]
+    assert "/api/ai-stats/knowledge-graph" in paths
+
+
+def test_knowledge_graph_endpoint_passes_user_and_days(monkeypatch: Any) -> None:
+    def fake_knowledge_graph(*, user_id: int, days: int) -> dict[str, Any]:
+        assert user_id == 42
+        assert days == 14
+        return {
+            "nodes": [],
+            "edges": [],
+            "articles": [],
+            "article_count": 0,
+            "pending_count": 0,
+            "days": days,
+        }
+
+    monkeypatch.setattr("news_dashboard.entities.knowledge_graph", fake_knowledge_graph)
+
+    response = _client().get("/api/ai-stats/knowledge-graph?days=14")
+
+    assert response.status_code == 200
+    assert response.json()["days"] == 14
+
+
+def test_knowledge_graph_days_out_of_range_is_422() -> None:
+    client = _client()
+    assert client.get("/api/ai-stats/knowledge-graph?days=0").status_code == 422
+    assert client.get("/api/ai-stats/knowledge-graph?days=31").status_code == 422

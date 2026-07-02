@@ -7,13 +7,15 @@ import pytest
 from news_dashboard.ingest import sync_sources
 from news_dashboard.sources import DEFAULT_SOURCES
 
-# ── Unit tests (no DB) ───────────────────────────────────────────────────
+# Unit tests (no DB)
 
 
 def test_trail_of_bits_blog_in_default_sources() -> None:
     """trail-of-bits-blog SourceDefinition exists in DEFAULT_SOURCES."""
     by_slug = {s.slug: s for s in DEFAULT_SOURCES}
-    assert "trail-of-bits-blog" in by_slug, f"trail-of-bits-blog not found; slugs: {sorted(by_slug)[:10]}..."
+    assert "trail-of-bits-blog" in by_slug, (
+        f"trail-of-bits-blog not found; slugs: {sorted(by_slug)[:10]}..."
+    )
 
 
 def test_trail_of_bits_blog_metadata() -> None:
@@ -42,10 +44,12 @@ def test_trail_of_bits_blog_routes_to_rss_feed() -> None:
     assert src.kind == "rss_feed"
 
 
-# ── Integration tests (PostgreSQL) ────────────────────────────────────────
+# Integration tests (PostgreSQL)
 
 
-def test_trail_of_bits_blog_sync_persists_row(pg_clean: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_trail_of_bits_blog_sync_persists_row(
+    pg_clean: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """sync_sources() creates a sources row for trail-of-bits-blog."""
     monkeypatch.setenv("DATABASE_URL", pg_clean)
     sync_sources(pg_clean)

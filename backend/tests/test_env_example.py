@@ -22,7 +22,8 @@ _ENV_EXAMPLE_LINE_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 
 # TOKEN_SECRET is read dynamically via a tuple loop in digest.py, so the
 # literal-string scan below cannot discover it; it is still documented.
-_DYNAMIC_ONLY_VARS = {"TOKEN_SECRET"}
+# SENTRY_DSN_DESKTOP is consumed by the Tauri desktop app, not the backend.
+_DYNAMIC_ONLY_VARS = {"TOKEN_SECRET", "SENTRY_DSN_DESKTOP"}
 
 
 def _vars_read_in_source() -> set[str]:

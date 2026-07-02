@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node src/url-helper.test.js",
+    "test": "node src/url-helper.test.js && node src/instrument.test.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
@@ -19,6 +19,7 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
+    "@sentry/node": "^10.63.0",
     "electron-updater": "^6.8.9"
   }
 }

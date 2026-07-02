@@ -1,5 +1,7 @@
 'use strict';
 
+require('./instrument');
+
 const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');

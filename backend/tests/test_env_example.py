@@ -20,9 +20,14 @@ SOURCE_DIR = REPO_ROOT / "backend" / "news_dashboard"
 _ENV_VAR_PATTERN = re.compile(r"os\.(?:environ\.get|getenv)\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']")
 _ENV_EXAMPLE_LINE_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 
-# TOKEN_SECRET is read dynamically via a tuple loop in digest.py, so the
-# literal-string scan below cannot discover it; it is still documented.
-_DYNAMIC_ONLY_VARS = {"TOKEN_SECRET"}
+# Vars documented in .env.example but intentionally absent from backend Python source:
+#   TOKEN_SECRET       - read dynamically via a tuple loop in digest.py; the
+#                        literal-string scan below cannot discover it.
+#   SENTRY_DSN_DESKTOP - consumed exclusively by the Electron desktop main
+#                        process (desktop/src/instrument.js), never by the
+#                        backend; documented here so operators have a single
+#                        reference for all DSN variables.
+_BACKEND_EXEMPT_VARS = {"TOKEN_SECRET", "SENTRY_DSN_DESKTOP"}
 
 
 def _vars_read_in_source() -> set[str]:
@@ -54,5 +59,5 @@ def test_every_documented_env_var_is_used_or_allowlisted() -> None:
     source_vars = _vars_read_in_source()
     documented_vars = _vars_in_env_example()
 
-    unused = documented_vars - source_vars - _DYNAMIC_ONLY_VARS
+    unused = documented_vars - source_vars - _BACKEND_EXEMPT_VARS
     assert not unused, f".env.example vars not read anywhere in backend source: {sorted(unused)}"

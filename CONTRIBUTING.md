@@ -76,6 +76,16 @@ Runtime database code **must** use PostgreSQL-specific SQL and `psycopg` paramet
 
 SQLite may appear only in legacy import/migration tooling that reads an old SQLite database and writes into PostgreSQL.
 
+## Versioning
+
+The `VERSION` file at the repo root is the **single source of truth** for the app version:
+
+- It is derived from git tags by `scripts/next_version.sh` and baked into the release image — it is intentionally **not** committed with a bumped value between releases (see `release.yml`).
+- `pyproject.toml`'s `version` field is kept in sync with `VERSION` at release time.
+- The backend reads `VERSION` once at startup (`news_dashboard.main._read_app_version`) and uses it for the FastAPI `app.version`, which in turn drives both the OpenAPI `info.version` (`/docs`) and the `/api/version` endpoint.
+
+Don't hardcode a version literal anywhere else — read `VERSION` (or `app.version` at runtime) instead, so these values can't drift apart again.
+
 ## Opening a PR
 
 1. Fork the repo and create a feature branch.

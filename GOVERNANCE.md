@@ -30,9 +30,8 @@ The right venue depends on the size of the change:
   API/schema changes, changes that affect the PostgreSQL-only runtime rule in
   [CONTRIBUTING.md](CONTRIBUTING.md)) — open a Discussion or draft PR first so
   the approach can be agreed on before significant implementation work
-  happens. There's no formal ADR (Architecture Decision Record) template yet;
-  until one exists, capture the rationale in the Discussion/PR description
-  and link it from the eventual PR.
+  happens. Significant decisions are captured as [Architecture Decision Records](docs/adr/)
+  in `docs/adr/`; use the template at `docs/adr/0000-template.md`.
 
 Lazy consensus applies: a proposal is considered accepted if no maintainer
 objects within a reasonable review window. Silence is not blocking; an
@@ -51,6 +50,13 @@ explicit maintainer objection is.
   container images are published via the CI/CD pipeline on merge to `main`.
 - Breaking changes (config, schema, API) must be called out explicitly in the
   PR description and the changelog entry.
+
+## Response time
+
+Maintainers aim to triage new issues within **1 week** and respond to open
+pull requests within **2 weeks**. Actual timelines may vary, but this is the
+target. If your issue or PR goes unacknowledged beyond that window, a polite
+ping on the thread is welcome.
 
 ## Code of Conduct
 
